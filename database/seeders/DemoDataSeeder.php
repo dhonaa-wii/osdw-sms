@@ -2,8 +2,10 @@
 
 namespace Database\Seeders;
 
-use App\Enums\RequirementSubmission;
-use App\Models\AcademicTerm;
+use App\Enums\DocumentStatus;
+use App\Enums\RequirementStage;
+use App\Enums\SubmissionMode;
+use App\Enums\UserRole;
 use App\Models\Announcement;
 use App\Models\Applicant;
 use App\Models\Application;
@@ -14,7 +16,6 @@ use App\Models\OfferingAdditionalRequirement;
 use App\Models\OfferingFormField;
 use App\Models\Program;
 use App\Models\ProgramOffering;
-use App\Models\ScholarTerm;
 use App\Models\User;
 use App\Services\AwardService;
 use App\Services\ScreeningService;
@@ -41,7 +42,6 @@ class DemoDataSeeder extends Seeder
         // rest of the seed. Replace these once the registrar's list arrives.
         $programs = $this->demoPrograms();
 
-        $currentTerm = AcademicTerm::where('is_current', true)->firstOrFail();
         $staff = User::where('role', 'osdw_staff')->firstOrFail();
 
         $offeringA = ProgramOffering::whereHas('scholarshipProgram', fn ($q) => $q->where('name', 'DOST-SEI Undergraduate Academic Fellowship'))->firstOrFail();
@@ -49,33 +49,49 @@ class DemoDataSeeder extends Seeder
 
         $corField = $offeringA->formFields()->where('label', 'Certificate of Registration')->first();
 
+        // --- Offering A's additional requirements and interview -------------
+
+        $contract = $this->requirement($offeringA, RequirementStage::Shortlist, 'Signed scholarship contract', SubmissionMode::Both, 'Download the blank form, have it signed by you and a parent, upload a scan, then hand in the original at the OSDW office, Room 204.');
+        $contract->update([
+            'template_path' => $this->placeholderFile('demo/templates/scholarship-contract.pdf', 'Scholarship Contract - blank form'),
+            'template_name' => 'scholarship-contract.pdf',
+        ]);
+        $itr = $this->requirement($offeringA, RequirementStage::Shortlist, "Parent's income tax return", SubmissionMode::Upload, 'Latest ITR or a BIR certificate of tax exemption.');
+        $bankDetails = $this->requirement($offeringA, RequirementStage::Award, 'Landbank ATM account details', SubmissionMode::Upload, 'A photo of the front of your ATM card or your passbook.');
+        $this->requirement($offeringA, RequirementStage::Award, 'Original certificate of grades', SubmissionMode::Physical, 'Hand in at the OSDW office, Room 204.');
+
+        $offeringA->update([
+            'has_interview' => true,
+            'interview_at' => now()->addDays(5)->setTime(9, 0),
+            'interview_venue' => 'OSDW Conference Room, Administration Building',
+            'interview_instructions' => 'Wear your school uniform and bring your school ID and a printed copy of your application.',
+        ]);
+
         // --- Applicants across the pipeline -------------------------------
 
         $juan = $this->applicant('2022-00341', 'Dela Cruz', 'Juan', 'juan.delacruz@example.test', 'male');
         $juanApp = $this->submit($offeringA, $juan, $programs['BSIT'], $corField, ['gwa' => 92.00, 'year_level' => 3], daysAgo: 18);
         $this->transition($juanApp, 'shortlisted', at: now()->subDays(14));
-        $award = app(AwardService::class)->create($juanApp, $staff);
-        app(AwardService::class)->accept($award);
-        ScholarTerm::create([
-            'award_id' => $award->id,
-            'applicant_id' => $juan->id,
-            'academic_term_id' => $currentTerm->id,
-            'gwa' => 93.00,
-            'units_enrolled' => 21,
-            'has_failing_grade' => false,
-            'status' => 'active',
-        ]);
+        $this->requirementSubmission($juanApp, $contract, $staff, DocumentStatus::Verified, physical: true);
+        $this->requirementSubmission($juanApp, $itr, $staff, DocumentStatus::Verified);
+        app(AwardService::class)->create($juanApp, $staff);
+        $this->requirementSubmission($juanApp, $bankDetails, $staff, DocumentStatus::Verified);
         // Second application, same student — drives the multi-application badge.
         $this->submit($offeringB, $juan, $programs['BSIT'], null, ['gwa' => 92.00, 'year_level' => 3], daysAgo: 4);
 
         $maria = $this->applicant('2022-00587', 'Santos', 'Maria', 'maria.santos@example.test', 'female');
-        $mariaApp = $this->submit($offeringA, $maria, $programs['BSCS'], $corField, ['gwa' => 90.00, 'year_level' => 2], daysAgo: 15);
+        $mariaApp = $this->submit($offeringA, $maria, $programs['BSCS'], $corField, ['gwa' => 90.00, 'year_level' => 2, 'consent_publish' => false], daysAgo: 15);
         $this->transition($mariaApp, 'shortlisted', at: now()->subDays(12));
+        $this->requirementSubmission($mariaApp, $contract, $staff, DocumentStatus::Verified, physical: true);
+        $this->requirementSubmission($mariaApp, $itr, $staff, DocumentStatus::Verified);
         app(AwardService::class)->create($mariaApp, $staff);
+        $this->requirementSubmission($mariaApp, $bankDetails, $staff, DocumentStatus::Pending);
 
+        // Shortlisted, one upload waiting on staff and one not yet submitted.
         $patricia = $this->applicant('2023-00129', 'Gomez', 'Patricia', 'patricia.gomez@example.test', 'female');
         $patriciaApp = $this->submit($offeringA, $patricia, $programs['BSA'], $corField, ['gwa' => 88.00, 'year_level' => 1], daysAgo: 10);
         $this->transition($patriciaApp, 'shortlisted', at: now()->subDays(6));
+        $this->requirementSubmission($patriciaApp, $contract, $staff, DocumentStatus::Pending);
 
         $mark = $this->applicant('2021-00204', 'Villanueva', 'Mark', 'mark.villanueva@example.test', 'male');
         $this->submit($offeringA, $mark, $programs['BIT'], $corField, ['gwa' => 87.00, 'year_level' => 4], daysAgo: 9);
@@ -91,33 +107,23 @@ class DemoDataSeeder extends Seeder
 
         $divine = $this->applicant('2021-00456', 'Cruz', 'Divine', 'divine.cruz@example.test', 'female');
         $divineApp = $this->submit($offeringA, $divine, $programs['BSBA'], $corField, ['gwa' => 83.00, 'year_level' => 3], daysAgo: 11);
-        $this->transition($divineApp, 'withdrawn', 'Withdrawn by applicant.', now()->subDays(2));
+        $this->transition($divineApp, 'denied', 'Did not meet the GWA requirement.', now()->subDays(2));
 
-        // --- Additional requirements, set once for the whole shortlist ------
-        // One of each kind, then three applicants at different stages of
-        // handing them in: none, one, and both.
-
-        $uploadRequirement = $offeringA->additionalRequirements()->create([
-            'label' => 'Signed parent consent form',
-            'submission_mode' => RequirementSubmission::Upload,
-            'created_by' => $staff->id,
-        ]);
-        $physicalRequirement = $offeringA->additionalRequirements()->create([
-            'label' => 'Notarized affidavit of indigency (original copy)',
-            'submission_mode' => RequirementSubmission::PhysicalCopy,
-            'created_by' => $staff->id,
-        ]);
+        // --- More of the shortlist, still awaiting award -------------------
 
         $noel = $this->applicant('2021-00873', 'Aquino', 'Noel', 'noel.aquino@example.test', 'male');
         $noelApp = $this->submit($offeringA, $noel, $programs['BSCRIM'], $corField, ['gwa' => 89.00, 'year_level' => 4], daysAgo: 13);
         $this->transition($noelApp, 'shortlisted', at: now()->subDays(8));
-        $this->receipt($noelApp, $physicalRequirement, $staff, daysAgo: 2);
+        // Everything complied — ready to award.
+        $this->requirementSubmission($noelApp, $contract, $staff, DocumentStatus::Verified, physical: true);
+        $this->requirementSubmission($noelApp, $itr, $staff, DocumentStatus::Verified);
 
+        // Upload verified but original not handed in; ITR sent back.
         $liza = $this->applicant('2022-00661', 'Mendoza', 'Liza', 'liza.mendoza@example.test', 'female');
         $lizaApp = $this->submit($offeringA, $liza, $programs['BSED'], $corField, ['gwa' => 91.00, 'year_level' => 2], daysAgo: 12);
         $this->transition($lizaApp, 'shortlisted', at: now()->subDays(7));
-        $this->receipt($lizaApp, $physicalRequirement, $staff, daysAgo: 3);
-        $this->receipt($lizaApp, $uploadRequirement, null, daysAgo: 3, fileName: 'parent-consent.pdf');
+        $this->requirementSubmission($lizaApp, $contract, $staff, DocumentStatus::Verified);
+        $this->requirementSubmission($lizaApp, $itr, $staff, DocumentStatus::Rejected, remarks: 'The scan is cut off at the bottom. Upload the full page, including the BIR stamp.');
 
         $joel = $this->applicant('2023-00318', 'Ramos', 'Joel', 'joel.ramos@example.test', 'male');
         $joelApp = $this->submit($offeringA, $joel, $programs['BSCS'], $corField, ['gwa' => 85.00, 'year_level' => 1], daysAgo: 9);
@@ -136,7 +142,11 @@ class DemoDataSeeder extends Seeder
 
         // --- Publish results + announcements -------------------------------
 
-        $offeringA->update(['results_published' => true]);
+        $offeringA->update([
+            'results_published' => true,
+            'publish_instructions' => 'Awardees may claim their certificate at the OSDW office, Room 204, starting next week. Bring one valid school ID.',
+            'results_published_at' => now()->subDays(1),
+        ]);
 
         Announcement::create([
             'title' => 'Application window extended for DOST-SEI Fellowship',
@@ -196,9 +206,21 @@ class DemoDataSeeder extends Seeder
 
     protected function applicant(string $studentId, string $lastName, string $firstName, string $email, string $sex): Applicant
     {
+        // Every demo student can sign in with their email and "password".
+        $user = User::updateOrCreate(
+            ['email' => $email],
+            [
+                'name' => "{$firstName} {$lastName}",
+                'password' => 'password',
+                'role' => UserRole::Student,
+                'email_verified_at' => now(),
+            ]
+        );
+
         return Applicant::updateOrCreate(
             ['student_id' => $studentId],
             [
+                'user_id' => $user->id,
                 'last_name' => $lastName,
                 'first_name' => $firstName,
                 'sex' => $sex,
@@ -221,8 +243,6 @@ class DemoDataSeeder extends Seeder
         $submittedAt = now()->subDays($daysAgo);
 
         $application = Application::create(array_merge([
-            'reference_no' => $this->referenceNumber(),
-            'access_token' => Str::random(64),
             'applicant_id' => $applicant->id,
             'program_offering_id' => $offering->id,
             'college_id' => $program->college_id,
@@ -260,30 +280,70 @@ class DemoDataSeeder extends Seeder
         return $application->fresh();
     }
 
+    protected function requirement(
+        ProgramOffering $offering,
+        RequirementStage $stage,
+        string $label,
+        SubmissionMode $mode,
+        string $instructions,
+    ): OfferingAdditionalRequirement {
+        return $offering->additionalRequirements()->firstOrCreate(
+            ['stage' => $stage->value, 'label' => $label],
+            [
+                'instructions' => $instructions,
+                'submission_mode' => $mode,
+                'accepted_formats' => $mode->needsUpload() ? 'pdf,jpg,png' : null,
+                'max_size_mb' => $mode->needsUpload() ? 5 : null,
+                'sort_order' => $offering->additionalRequirements()->where('stage', $stage->value)->count() + 1,
+            ]
+        );
+    }
+
     /**
-     * One applicant handing in one of the offering's additional requirements.
-     * A null $staff means the applicant uploaded it themselves.
+     * An applicant's submission against one additional requirement. $status
+     * describes the upload (ignored for physical-only requirements); $physical
+     * marks the original as received at the office.
      */
-    protected function receipt(
+    protected function requirementSubmission(
         Application $application,
         OfferingAdditionalRequirement $requirement,
-        ?User $staff,
-        int $daysAgo,
-        ?string $fileName = null,
+        User $staff,
+        DocumentStatus $status,
+        bool $physical = false,
+        ?string $remarks = null,
     ): void {
-        $path = $fileName
-            ? $this->placeholderFile("demo/{$application->id}-{$fileName}", $requirement->label)
-            : null;
+        $attributes = [];
 
-        $application->additionalRequirementReceipts()->create([
-            'offering_additional_requirement_id' => $requirement->id,
-            'received_at' => now()->subDays($daysAgo),
-            'received_by' => $staff?->id,
-            'file_path' => $path,
-            'original_name' => $fileName,
-            'mime_type' => $path ? 'application/pdf' : null,
-            'file_size' => $path ? Storage::disk('local')->size($path) : null,
-        ]);
+        if ($requirement->submission_mode->needsUpload()) {
+            $path = $this->placeholderFile(
+                'demo/requirement-'.$application->id.'-'.$requirement->id.'.pdf',
+                $requirement->label.' - '.$application->applicant->student_id
+            );
+
+            $attributes = [
+                'file_path' => $path,
+                'original_name' => Str::slug($requirement->label).'.pdf',
+                'mime_type' => 'application/pdf',
+                'file_size' => Storage::disk('local')->size($path),
+                'submitted_at' => now()->subDays(2),
+                'status' => $status,
+                'remarks' => $remarks,
+                'verified_by' => $status === DocumentStatus::Pending ? null : $staff->id,
+                'verified_at' => $status === DocumentStatus::Pending ? null : now()->subDay(),
+            ];
+        }
+
+        if ($physical && $requirement->submission_mode->needsPhysical()) {
+            $attributes += [
+                'physical_received_at' => now()->subDay(),
+                'physical_received_by' => $staff->id,
+            ];
+        }
+
+        $application->additionalRequirementSubmissions()->updateOrCreate(
+            ['offering_additional_requirement_id' => $requirement->id],
+            $attributes
+        );
     }
 
     protected function transition(Application $application, string $toStatus, ?string $reason = null, $at = null): void
@@ -346,14 +406,5 @@ class DemoDataSeeder extends Seeder
         }
 
         return $pdf."trailer\n<< /Size {$size} /Root 1 0 R >>\nstartxref\n{$startXref}\n%%EOF";
-    }
-
-    protected function referenceNumber(): string
-    {
-        do {
-            $candidate = 'SCH-'.now()->format('Y').'-'.strtoupper(Str::random(6));
-        } while (Application::where('reference_no', $candidate)->exists());
-
-        return $candidate;
     }
 }

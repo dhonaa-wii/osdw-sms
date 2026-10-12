@@ -3,22 +3,22 @@
 namespace App\Models;
 
 use App\Concerns\Auditable;
+use App\Enums\ApplicationKind;
 use App\Enums\ApplicationStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
-use Illuminate\Support\Collection;
 
 class Application extends Model
 {
     use Auditable;
 
     protected $fillable = [
-        'reference_no',
-        'access_token',
         'applicant_id',
         'program_offering_id',
+        'kind',
+        'renewed_from_award_id',
         'college_id',
         'year_level',
         'gwa',
@@ -35,6 +35,7 @@ class Application extends Model
             'gwa' => 'decimal:2',
             'monthly_income' => 'decimal:2',
             'consent_publish' => 'boolean',
+            'kind' => ApplicationKind::class,
             'status' => ApplicationStatus::class,
             'submitted_at' => 'datetime',
             'screened_at' => 'datetime',
@@ -49,6 +50,62 @@ class Application extends Model
     public function programOffering(): BelongsTo
     {
         return $this->belongsTo(ProgramOffering::class);
+    }
+
+    /**
+     * Students see only their own applications and files.
+     */
+    public function isOwnedBy(?User $user): bool
+    {
+        return $user !== null && $this->applicant()->where('user_id', $user->id)->exists();
+    }
+
+    public function isRenewal(): bool
+    {
+        return $this->kind === ApplicationKind::Renewal;
+    }
+
+    /**
+     * The award in the previous offering this renewal continues.
+     */
+    public function renewedFromAward(): BelongsTo
+    {
+        return $this->belongsTo(Award::class, 'renewed_from_award_id');
+    }
+
+    /**
+     * What the status stamp reads. A renewal never passes through the
+     * shortlist, so its review and award stages get their own names. An
+     * awardee whose fund was released reads Disbursed; the application
+     * itself stays awarded.
+     */
+    public function statusLabel(?ApplicationStatus $status = null): string
+    {
+        if ($status === null && $this->isDisbursed()) {
+            return 'Disbursed';
+        }
+
+        $status ??= $this->status;
+
+        if (! $this->isRenewal()) {
+            return $status->label();
+        }
+
+        return match ($status) {
+            ApplicationStatus::Screening => 'Under review',
+            ApplicationStatus::Awarded => 'Renewed',
+            default => $status->label(),
+        };
+    }
+
+    public function isDisbursed(): bool
+    {
+        return $this->status === ApplicationStatus::Awarded && (bool) $this->award?->isDisbursed();
+    }
+
+    public function statusStampClasses(): string
+    {
+        return $this->status->stampClasses();
     }
 
     public function college(): BelongsTo
@@ -71,11 +128,6 @@ class Application extends Model
         return $this->hasMany(ApplicationScreening::class);
     }
 
-    public function additionalRequirementReceipts(): HasMany
-    {
-        return $this->hasMany(ApplicationAdditionalRequirement::class);
-    }
-
     public function statusLogs(): HasMany
     {
         return $this->hasMany(ApplicationStatusLog::class);
@@ -86,52 +138,30 @@ class Application extends Model
         return $this->hasOne(Award::class);
     }
 
+    public function additionalRequirementSubmissions(): HasMany
+    {
+        return $this->hasMany(ApplicationAdditionalRequirement::class);
+    }
+
     public function emailLogs(): HasMany
     {
         return $this->hasMany(EmailLog::class);
     }
 
     /**
-     * The offering's additional requirements this applicant has not handed in
-     * yet. While any remain, the applicant cannot be awarded.
-     *
-     * @return Collection<int, OfferingAdditionalRequirement>
-     */
-    public function outstandingAdditionalRequirements(): Collection
-    {
-        $received = $this->additionalRequirementReceipts->pluck('offering_additional_requirement_id');
-
-        return $this->programOffering->additionalRequirements
-            ->reject(fn (OfferingAdditionalRequirement $requirement) => $received->contains($requirement->id))
-            ->values();
-    }
-
-    public function hasReceivedAdditionalRequirement(OfferingAdditionalRequirement $requirement): bool
-    {
-        return $this->additionalRequirementReceipts
-            ->contains('offering_additional_requirement_id', $requirement->id);
-    }
-
-    /**
      * Multi-application flag color/label per the doc spec — red for an
-     * active award, amber for a still-pending outcome, gray for anything
-     * closed out (denied, withdrawn, declined, terminated).
+     * award, amber for a still-pending outcome, gray for anything closed
+     * out (denied).
      *
      * @return array{color: string, label: string}
      */
     public function outcomeBadge(): array
     {
-        $award = $this->award;
-
-        if ($award && $award->acceptance_status->value === 'accepted' && in_array($award->status->value, ['active', 'reserved'], true)) {
-            return ['color' => 'crimson-600', 'label' => 'Active award'];
+        if ($this->award) {
+            return ['color' => 'crimson-600', 'label' => 'Awarded'];
         }
 
-        if ($award && $award->acceptance_status->value === 'pending') {
-            return ['color' => 'amber-600', 'label' => 'Award pending acceptance'];
-        }
-
-        if (in_array($this->status->value, ['submitted', 'screening', 'shortlisted', 'approved', 'waitlisted'], true)) {
+        if (in_array($this->status->value, ['submitted', 'screening', 'shortlisted', 'waitlisted'], true)) {
             return ['color' => 'amber-600', 'label' => 'Pending'];
         }
 

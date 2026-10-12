@@ -18,7 +18,7 @@ enum EmailStatus: string
         return match ($this) {
             self::Failed => 'border-crimson-600 text-crimson-600',
             self::Queued => 'border-amber-600 text-amber-600',
-            self::Sent => 'border-forest-600 text-forest-700',
+            self::Sent => 'border-navy-600 text-navy-700',
         };
     }
 }

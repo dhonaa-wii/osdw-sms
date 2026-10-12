@@ -9,8 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * Shared shape for the two eligibility-rule tables — program template and
- * offering working copy. See Base\FormField for why the pair exists.
+ * Shared shape for the offering eligibility-rule table.
  */
 abstract class EligibilityRule extends Model
 {
@@ -39,11 +38,6 @@ abstract class EligibilityRule extends Model
         }
 
         return "{$this->field->label()} must be {$this->operator->label()} {$this->value}";
-    }
-
-    public function copyableAttributes(): array
-    {
-        return $this->only(self::SHARED_FILLABLE);
     }
 
     abstract public function owner(): BelongsTo;

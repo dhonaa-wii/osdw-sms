@@ -1,7 +1,9 @@
 <?php
 
+use App\Enums\EligibilityField;
 use App\Enums\OfferingStatus;
 use App\Models\ProgramOffering;
+use App\Services\ScholarshipHoldingService;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
 
@@ -11,12 +13,21 @@ new #[Layout('layouts::public', array('title' => 'Scholarship Details'))] class 
 
     public function mount(ProgramOffering $offering): void
     {
-        abort_unless($offering->registrationStatus() === OfferingStatus::Open, 404);
+        // The public site shows only offerings open for registration. Students
+        // follow closed ones they applied to from My applications.
+        abort_unless(
+            $offering->takesNewApplicants()
+                && $offering->registrationStatus() === OfferingStatus::Open
+                && $offering->scholarshipProgram->is_active,
+            404
+        );
 
         $this->offering = $offering->load([
             'scholarshipProgram.provider',
             'academicTerm',
-            'eligibilityRules',
+            'renewsOffering',
+            // The family income cap is screened but never shown to students.
+            'eligibilityRules' => fn ($query) => $query->where('field', '!=', EligibilityField::Income->value),
             'offeringColleges.college',
             'formFields' => fn ($query) => $query->orderBy('sort_order'),
             'announcements' => fn ($query) => $query->where('is_published', true)->orderByDesc('published_at'),
@@ -27,113 +38,178 @@ new #[Layout('layouts::public', array('title' => 'Scholarship Details'))] class 
     {
         return $this->offering->college_scope->value === 'restricted' || $this->offering->allocation_mode->value === 'quota';
     }
+
+    public function with(): array
+    {
+        $applicant = auth()->user()?->applicant;
+
+        return [
+            // The signed-in student's own application here, if they already applied.
+            'myApplication' => $applicant?->applications()->where('program_offering_id', $this->offering->id)->first(),
+            // Why the signed-in student can't apply here (a national grantee applying to another national scholarship).
+            'applyBlocker' => $applicant ? app(ScholarshipHoldingService::class)->applyBlocker($applicant, $this->offering) : null,
+        ];
+    }
 };
 ?>
 
+@php
+    $status = $offering->registrationStatus();
+    $isOpen = $status === OfferingStatus::Open;
+    $closingSoon = $isOpen && $offering->closes_at <= now()->addDays(7);
+    $renewalOnly = ! $offering->takesNewApplicants();
+    $requirements = $offering->formFields->where('field_type', \App\Enums\FieldType::File);
+
+    $primaryClass = 'inline-flex w-full items-center justify-center gap-2 rounded-control bg-navy-600 px-4 py-2.5 font-body text-[14px] font-500 text-white transition-colors hover:bg-navy-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy-600 focus-visible:ring-offset-2';
+    $sectionHeading = 'flex items-center gap-2 font-display text-[15px] font-600 text-ink';
+@endphp
+
 <div>
-    <div class="flex flex-wrap items-center justify-between gap-3">
-        <x-ui.back-link :href="route('programs.index')" label="Open scholarships" />
-        <a href="{{ route('track.lookup') }}" class="font-body text-[13px] text-slate transition-colors hover:text-forest-700">Already applied? Track your application &rarr;</a>
-    </div>
+    <x-ui.back-link :href="route('programs.index')" label="Scholarship programs" wire:navigate />
 
-    @php $closingSoon = $offering->closes_at <= now()->addDays(7); @endphp
+    <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[1fr_300px] lg:items-start">
+        <div class="space-y-4">
+            {{-- Header --}}
+            <section class="rounded-card border border-line bg-surface p-5">
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <x-ui.status-stamp :status="$status" />
+                    @if ($closingSoon)
+                        <span class="border-l-2 border-amber-600 pl-2 font-body text-[11px] font-600 uppercase tracking-[0.08em] text-amber-600">Closing soon</span>
+                    @endif
+                </div>
+                <h1 class="mt-2 font-display text-[22px] font-600 leading-snug text-ink sm:text-[24px]">{{ $offering->scholarshipProgram->name }} &middot; {{ $offering->displayName() }}</h1>
+                <p class="mt-1 flex flex-wrap items-center gap-x-2 font-body text-[13px] text-slate">
+                    <span class="inline-flex items-center gap-1.5"><x-ui.icon name="building" class="size-3.5 text-mist" />{{ $offering->scholarshipProgram->provider->name }}</span>
+                    <span class="text-mist">&middot;</span>
+                    <span>{{ $offering->scholarshipProgram->provider->funding_source->label() }}</span>
+                    <span class="text-mist">&middot;</span>
+                    <span>{{ $offering->category->label() }}</span>
+                </p>
 
-    <div class="mt-4">
-        <p class="font-body text-[13px] font-600 uppercase tracking-[0.08em] text-forest-700">
-            {{ $offering->scholarshipProgram->provider->name }} &middot; {{ $offering->scholarshipProgram->provider->funding_source->label() }} &middot; {{ $offering->scholarshipProgram->category->label() }}
-        </p>
-        <div class="mt-2 flex flex-wrap items-center gap-3">
-            <h1 class="font-display text-[28px] font-600 text-ink">{{ $offering->scholarshipProgram->name }} &middot; {{ $offering->displayName() }}</h1>
-            @if ($closingSoon)
-                <span class="border-l-2 border-amber-600 pl-2 font-body text-[11px] font-600 uppercase tracking-[0.08em] text-amber-600">Closing soon</span>
+                @if ($offering->scholarshipProgram->description)
+                    <p class="mt-4 whitespace-pre-line border-t border-line pt-4 font-body text-[14px] leading-relaxed text-ink">{{ $offering->scholarshipProgram->description }}</p>
+                @endif
+            </section>
+
+            {{-- Who can apply --}}
+            @if ($this->isCollegeRestricted() || $offering->eligibilityRules->isNotEmpty())
+                <section class="rounded-card border border-line bg-surface p-5" aria-labelledby="eligibility-heading">
+                    <h2 id="eligibility-heading" class="{{ $sectionHeading }}">
+                        <x-ui.icon name="check-circle" class="size-4 text-navy-600" /> Who can apply
+                    </h2>
+
+                    @if ($this->isCollegeRestricted())
+                        <div class="mt-3 flex flex-wrap gap-1.5">
+                            @foreach ($offering->offeringColleges as $offeringCollege)
+                                <span class="rounded-control border border-line bg-paper px-2 py-1 font-body text-[12px] text-ink">{{ $offeringCollege->college->name }}</span>
+                            @endforeach
+                        </div>
+                    @endif
+
+                    @if ($offering->eligibilityRules->isNotEmpty())
+                        <ul class="mt-3 space-y-2">
+                            @foreach ($offering->eligibilityRules as $rule)
+                                <li class="flex items-start gap-2 font-body text-[14px] text-ink">
+                                    <x-ui.icon name="check" class="mt-0.5 size-4 text-navy-600" />
+                                    {{ $rule->describe() }}
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
+                </section>
+            @endif
+
+            {{-- Documents --}}
+            @if ($requirements->isNotEmpty())
+                <section class="rounded-card border border-line bg-surface p-5" aria-labelledby="documents-heading">
+                    <h2 id="documents-heading" class="{{ $sectionHeading }}">
+                        <x-ui.icon name="form" class="size-4 text-navy-600" /> Documents you'll need
+                    </h2>
+                    <ul class="mt-3 divide-y divide-line">
+                        @foreach ($requirements as $requirement)
+                            <li class="flex items-center justify-between gap-3 py-2 first:pt-0 last:pb-0">
+                                <span class="min-w-0 font-body text-[14px] text-ink">
+                                    {{ $requirement->label }}
+                                    @if (! $requirement->is_required) <span class="text-mist">(optional)</span> @endif
+                                </span>
+                                <span class="shrink-0 font-mono text-[11px] text-mist">{{ str_replace(',', ', ', $requirement->accepted_formats) }} &middot; {{ $requirement->max_size_mb }} MB</span>
+                            </li>
+                        @endforeach
+                    </ul>
+                </section>
+            @endif
+
+            {{-- Announcements --}}
+            @if ($offering->announcements->isNotEmpty())
+                <section class="rounded-card border border-line bg-surface p-5" aria-labelledby="announcements-heading">
+                    <h2 id="announcements-heading" class="{{ $sectionHeading }}">
+                        <x-ui.icon name="megaphone" class="size-4 text-navy-600" /> Announcements
+                    </h2>
+                    <div class="mt-3 divide-y divide-line">
+                        @foreach ($offering->announcements as $announcement)
+                            <article class="py-3 first:pt-0 last:pb-0">
+                                <div class="flex flex-wrap items-baseline justify-between gap-2">
+                                    <p class="font-body text-[14px] font-600 text-ink">{{ $announcement->title }}</p>
+                                    <p class="font-mono text-[11px] text-mist">{{ $announcement->published_at?->format('M j, Y') }}</p>
+                                </div>
+                                <p class="mt-1 whitespace-pre-line font-body text-[13px] text-slate">{{ $announcement->body }}</p>
+                            </article>
+                        @endforeach
+                    </div>
+                </section>
             @endif
         </div>
-    </div>
 
-    @if ($offering->scholarshipProgram->description)
-        <p class="mt-4 font-body text-[15px] text-ink">{{ $offering->scholarshipProgram->description }}</p>
-    @endif
+        {{-- Action card --}}
+        <aside class="rounded-card border border-line bg-surface lg:sticky lg:top-20">
+            <dl class="divide-y divide-line">
+                <div class="flex items-center justify-between gap-3 px-5 py-3">
+                    <dt class="flex items-center gap-2 font-body text-[13px] text-slate"><x-ui.icon name="users" class="size-4 text-mist" />{{ $renewalOnly ? 'Open to' : 'Slots' }}</dt>
+                    <dd class="text-right font-body text-[14px] text-ink">
+                        @if ($renewalOnly)
+                            {{ $offering->renewsOffering?->displayName() }} scholars
+                        @else
+                            <span class="font-mono">{{ $offering->total_slots }}</span>
+                        @endif
+                    </dd>
+                </div>
+                <div class="flex items-center justify-between gap-3 px-5 py-3">
+                    <dt class="flex items-center gap-2 font-body text-[13px] text-slate"><x-ui.icon name="clock" class="size-4 text-mist" />{{ $offering->isRenewal() ? 'Submission starts' : 'Opens' }}</dt>
+                    <dd class="font-mono text-[13px] text-ink">{{ $offering->opens_at->format('M j, Y') }}</dd>
+                </div>
+                <div class="flex items-center justify-between gap-3 px-5 py-3">
+                    <dt class="flex items-center gap-2 font-body text-[13px] text-slate"><x-ui.icon name="calendar" class="size-4 text-mist" />{{ $offering->isRenewal() ? 'Submission due' : 'Deadline' }}</dt>
+                    <dd class="font-mono text-[13px] {{ $closingSoon ? 'text-amber-600' : 'text-ink' }}">{{ $offering->closes_at->format('M j, Y') }}</dd>
+                </div>
+            </dl>
 
-    <div class="mt-6 grid grid-cols-2 divide-x divide-y divide-line rounded-card border border-line bg-surface sm:grid-cols-3 sm:divide-y-0" data-reveal>
-        <div class="p-4">
-            <p class="font-body text-[11px] font-600 uppercase tracking-[0.08em] text-mist">Slots</p>
-            <p class="mt-1 font-mono text-[16px] text-ink">{{ $offering->total_slots }}</p>
-        </div>
-        <div class="p-4">
-            <p class="font-body text-[11px] font-600 uppercase tracking-[0.08em] text-mist">Deadline</p>
-            <p class="mt-1 font-mono text-[16px] text-ink">{{ $offering->closes_at->format('M j, Y') }}</p>
-        </div>
-        @if ($offering->amount)
-            <div class="p-4">
-                <p class="font-body text-[11px] font-600 uppercase tracking-[0.08em] text-mist">Amount</p>
-                <p class="mt-1 font-mono text-[16px] text-ink">&#8369;{{ number_format($offering->amount, 2) }}</p>
-            </div>
-        @endif
-        @if ($offering->discount_rate)
-            <div class="p-4">
-                <p class="font-body text-[11px] font-600 uppercase tracking-[0.08em] text-mist">Tuition discount</p>
-                <p class="mt-1 font-mono text-[16px] text-ink">{{ $offering->discount_rate }}%</p>
-            </div>
-        @endif
-    </div>
-
-    @if ($this->isCollegeRestricted())
-        <div class="mt-6" data-reveal>
-            <p class="font-body text-[11px] font-600 uppercase tracking-[0.08em] text-mist">Open to</p>
-            <p class="mt-1 font-body text-[14px] text-ink">{{ $offering->offeringColleges->pluck('college.name')->implode(', ') }}</p>
-        </div>
-    @endif
-
-    @if ($offering->eligibilityRules->isNotEmpty())
-        <div class="mt-6" data-reveal>
-            <p class="font-body text-[11px] font-600 uppercase tracking-[0.08em] text-mist">Eligibility</p>
-            <ul class="mt-2 space-y-1.5">
-                @foreach ($offering->eligibilityRules as $rule)
-                    <li class="flex items-start gap-2 font-body text-[14px] text-ink">
-                        <svg class="mt-0.5 size-4 shrink-0 text-forest-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7" /></svg>
-                        {{ $rule->describe() }}
-                    </li>
-                @endforeach
-            </ul>
-        </div>
-    @endif
-
-    @php $requirements = $offering->formFields->where('field_type', \App\Enums\FieldType::File); @endphp
-    @if ($requirements->isNotEmpty())
-        <div class="mt-6" data-reveal>
-            <p class="font-body text-[11px] font-600 uppercase tracking-[0.08em] text-mist">Documents you'll need</p>
-            <ul class="mt-2 space-y-1.5">
-                @foreach ($requirements as $requirement)
-                    <li class="flex items-start gap-2 font-body text-[14px] text-ink">
-                        <svg class="mt-0.5 size-4 shrink-0 text-slate" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3h8a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" /><path d="M9 8h6M9 12h6" /></svg>
-                        <span>
-                            {{ $requirement->label }}
-                            @if (! $requirement->is_required) <span class="text-mist">(optional)</span> @endif
-                            <span class="font-mono text-[12px] text-slate">&mdash; {{ $requirement->accepted_formats }}, max {{ $requirement->max_size_mb }}MB</span>
-                        </span>
-                    </li>
-                @endforeach
-            </ul>
-        </div>
-    @endif
-
-    @if ($offering->announcements->isNotEmpty())
-        <div class="mt-6" data-reveal>
-            <p class="font-body text-[11px] font-600 uppercase tracking-[0.08em] text-mist">Announcements</p>
-            <div class="mt-2 space-y-3">
-                @foreach ($offering->announcements as $announcement)
-                    <div class="rounded-card border border-line bg-surface p-4">
-                        <p class="font-mono text-[12px] text-mist">{{ $announcement->published_at?->format('M j, Y') }}</p>
-                        <p class="mt-1 font-display text-[15px] font-600 text-ink">{{ $announcement->title }}</p>
-                        <p class="mt-1 font-body text-[14px] text-slate">{{ $announcement->body }}</p>
+            <div class="space-y-2 border-t border-line p-5">
+                @if ($myApplication)
+                    <a href="{{ route('student.applications.show', $myApplication) }}" wire:navigate class="{{ $primaryClass }}"><x-ui.icon name="form" class="size-4" /> View your {{ $myApplication->isRenewal() ? 'renewal' : 'application' }}</a>
+                    <div class="flex items-center justify-between gap-2 pt-1">
+                        <span class="font-body text-[12px] text-slate">Status</span>
+                        <x-ui.status-stamp :application="$myApplication" />
                     </div>
-                @endforeach
+                @elseif (auth()->user() && ! auth()->user()->isStudent())
+                    <p class="font-body text-[13px] text-slate">Students apply from their own accounts.</p>
+                @elseif ($applyBlocker)
+                    <div class="rounded-control border border-line border-l-2 border-l-crimson-600 bg-paper px-3 py-2.5">
+                        <p class="flex items-center gap-1.5 font-body text-[13px] font-600 text-crimson-600">
+                            <x-ui.icon name="alert-circle" class="size-4" /> You can't apply to this scholarship
+                        </p>
+                        <p class="mt-1 font-body text-[13px] text-slate">{{ $applyBlocker }}</p>
+                    </div>
+                    <a href="{{ route('programs.index') }}" wire:navigate class="inline-flex w-full items-center justify-center gap-2 rounded-control border border-line bg-surface px-4 py-2.5 font-body text-[14px] font-500 text-ink transition-colors hover:bg-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy-600 focus-visible:ring-offset-2">Browse other scholarships</a>
+                @else
+                    <a href="{{ route('programs.apply', $offering) }}" wire:navigate class="{{ $primaryClass }}">Apply now <x-ui.icon name="arrow-right" class="size-4" /></a>
+                    @guest
+                        <p class="pt-1 font-body text-[12px] text-slate">You'll log in or <a href="{{ route('register') }}" wire:navigate class="font-500 text-navy-700 hover:underline">register</a> first.</p>
+                    @endguest
+                    @if ($offering->isRenewal())
+                        <p class="pt-1 font-body text-[12px] text-slate">Current {{ $offering->renewsOffering?->displayName() }} scholars renew from My applications.</p>
+                    @endif
+                @endif
             </div>
-        </div>
-    @endif
-
-    <div class="mt-8 border-t border-line pt-6">
-        <a href="{{ route('programs.apply', $offering) }}" class="inline-flex items-center justify-center gap-2 rounded-control bg-forest-600 px-5 py-3 font-body text-[15px] font-500 text-white transition hover:bg-forest-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest-600 focus-visible:ring-offset-2">Apply now</a>
-        <p class="mt-2 font-body text-[13px] text-slate">Takes one sitting. You'll get a reference number immediately.</p>
+        </aside>
     </div>
 </div>

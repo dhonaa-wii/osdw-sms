@@ -25,7 +25,6 @@ class OfferingConfigurationTest extends TestCase
         $provider = Provider::create(['name' => 'DOST-SEI', 'funding_source' => FundingSource::NationalGovernment, 'is_active' => true]);
         $program = ScholarshipProgram::create([
             'name' => 'DOST-SEI Fellowship', 'provider_id' => $provider->id,
-            'category' => ScholarshipCategory::Academic,
         ]);
         $term = AcademicTerm::create([
             'school_year' => '2026-2027', 'semester' => Semester::First,
@@ -36,7 +35,7 @@ class OfferingConfigurationTest extends TestCase
         return ProgramOffering::create([
             'scholarship_program_id' => $program->id, 'academic_term_id' => $term->id, 'campus_id' => $campus->id,
             'opens_at' => '2026-08-10 08:00', 'closes_at' => '2026-09-10 17:00', 'total_slots' => 20,
-            'college_scope' => 'all', 'allocation_mode' => 'open',
+            'college_scope' => 'all', 'allocation_mode' => 'open', 'category' => ScholarshipCategory::Academic, 'amount' => 5000,
         ]);
     }
 

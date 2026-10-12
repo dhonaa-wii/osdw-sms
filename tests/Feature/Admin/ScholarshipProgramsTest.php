@@ -3,7 +3,6 @@
 namespace Tests\Feature\Admin;
 
 use App\Enums\FundingSource;
-use App\Enums\ScholarshipCategory;
 use App\Enums\UserRole;
 use App\Models\Provider;
 use App\Models\ScholarshipProgram;
@@ -33,14 +32,12 @@ class ScholarshipProgramsTest extends TestCase
             ->call('create')
             ->set('name', 'DOST-SEI Undergraduate Academic Fellowship')
             ->set('provider_id', (string) $provider->id)
-            ->set('category', ScholarshipCategory::Academic->value)
             ->call('save')
             ->assertHasNoErrors();
 
         $this->assertDatabaseHas('scholarship_programs', [
             'name' => 'DOST-SEI Undergraduate Academic Fellowship',
             'provider_id' => $provider->id,
-            'category' => 'academic',
         ]);
     }
 
@@ -53,7 +50,6 @@ class ScholarshipProgramsTest extends TestCase
             ->call('create')
             ->set('name', 'DOST-SEI Undergraduate Academic Fellowship')
             ->set('provider_id', '999999')
-            ->set('category', ScholarshipCategory::Academic->value)
             ->call('save')
             ->assertHasErrors(['provider_id' => 'exists']);
     }
@@ -64,7 +60,6 @@ class ScholarshipProgramsTest extends TestCase
         $provider = Provider::create(['name' => 'DOST-SEI', 'funding_source' => FundingSource::NationalGovernment, 'is_active' => true]);
         $program = ScholarshipProgram::create([
             'name' => 'Original name', 'provider_id' => $provider->id,
-            'category' => ScholarshipCategory::Academic,
         ]);
 
         Livewire::actingAs($admin)
@@ -82,8 +77,7 @@ class ScholarshipProgramsTest extends TestCase
         $admin = User::factory()->create(['role' => UserRole::Admin]);
         $provider = Provider::create(['name' => 'DOST-SEI', 'funding_source' => FundingSource::NationalGovernment, 'is_active' => true]);
         $program = ScholarshipProgram::create([
-            'name' => 'Program', 'provider_id' => $provider->id,
-            'category' => ScholarshipCategory::Academic, 'is_active' => true,
+            'name' => 'Program', 'provider_id' => $provider->id, 'is_active' => true,
         ]);
 
         Livewire::actingAs($admin)
@@ -101,7 +95,6 @@ class ScholarshipProgramsTest extends TestCase
             ->test('admin::program-configuration.scholarship-programs')
             ->call('create')
             ->set('name', 'DOST-SEI Undergraduate Academic Fellowship')
-            ->set('category', ScholarshipCategory::Academic->value)
             ->call('openProviderModal')
             ->set('newProviderName', 'New Provider Inc.')
             ->set('newProviderFundingSource', FundingSource::LocalNonGovernment->value)
@@ -141,12 +134,10 @@ class ScholarshipProgramsTest extends TestCase
             ->test('admin::program-configuration.scholarship-programs')
             ->call('create')
             ->set('name', 'DOST-SEI Undergraduate Academic Fellowship')
-            ->set('category', ScholarshipCategory::Academic->value)
             ->call('openProviderModal')
             ->call('saveNewProvider')
             ->assertHasErrors(['newProviderName']);
 
-        $component->assertSet('name', 'DOST-SEI Undergraduate Academic Fellowship')
-            ->assertSet('category', ScholarshipCategory::Academic->value);
+        $component->assertSet('name', 'DOST-SEI Undergraduate Academic Fellowship');
     }
 }

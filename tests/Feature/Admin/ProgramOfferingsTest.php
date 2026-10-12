@@ -30,7 +30,6 @@ class ProgramOfferingsTest extends TestCase
 
         return ScholarshipProgram::create([
             'name' => 'DOST-SEI Fellowship', 'provider_id' => $provider->id,
-            'category' => ScholarshipCategory::Academic,
         ]);
     }
 
@@ -62,6 +61,7 @@ class ProgramOfferingsTest extends TestCase
             ->call('create')
             ->set('academic_term_id', (string) $term->id)
             ->set('name', 'Batch 1')
+            ->set('category', ScholarshipCategory::Academic->value)
             ->set('opens_at', '2026-08-10T08:00')
             ->set('closes_at', '2026-09-10T17:00')
             ->set('total_slots', '20')
@@ -85,12 +85,13 @@ class ProgramOfferingsTest extends TestCase
             'scholarship_program_id' => $program->id, 'academic_term_id' => $term->id, 'campus_id' => Campus::first()->id,
             'opens_at' => now()->subDay(), 'closes_at' => now()->addDays(30), 'total_slots' => 20,
             'max_applications' => 1, 'college_scope' => 'all', 'allocation_mode' => 'open',
+            'category' => ScholarshipCategory::Academic,
         ]);
 
         $this->assertSame(OfferingStatus::Open, $offering->registrationStatus());
 
         $offering->applications()->create([
-            'reference_no' => 'SCH-2026-CAP', 'access_token' => str_repeat('a', 64),
+            'access_token' => str_repeat('a', 64),
             'applicant_id' => Applicant::create([
                 'student_id' => 'SID-CAP', 'last_name' => 'Reyes', 'first_name' => 'Ana', 'sex' => 'female', 'email' => 'ana@example.com',
             ])->id,
@@ -112,6 +113,7 @@ class ProgramOfferingsTest extends TestCase
             ->call('create')
             ->set('academic_term_id', (string) $term->id)
             ->set('name', 'Batch 1')
+            ->set('category', ScholarshipCategory::Academic->value)
             ->set('opens_at', '2026-08-10T08:00')
             ->set('closes_at', '2026-09-10T17:00')
             ->set('total_slots', '20')
@@ -133,6 +135,7 @@ class ProgramOfferingsTest extends TestCase
             ->call('create')
             ->set('academic_term_id', (string) $term->id)
             ->set('name', 'Batch 1')
+            ->set('category', ScholarshipCategory::Academic->value)
             ->set('opens_at', '2026-08-10T08:00')
             ->set('closes_at', '2026-09-10T17:00')
             ->set('total_slots', '20')
@@ -146,6 +149,7 @@ class ProgramOfferingsTest extends TestCase
             ->call('create')
             ->set('academic_term_id', (string) $term->id)
             ->set('name', 'Batch 1')
+            ->set('category', ScholarshipCategory::Academic->value)
             ->set('opens_at', '2026-08-10T08:00')
             ->set('closes_at', '2026-09-10T17:00')
             ->set('total_slots', '20')
@@ -171,6 +175,7 @@ class ProgramOfferingsTest extends TestCase
             ->call('create')
             ->set('academic_term_id', (string) $term->id)
             ->set('name', 'Batch 1')
+            ->set('category', ScholarshipCategory::Academic->value)
             ->set('opens_at', '2026-08-10T08:00')
             ->set('closes_at', '2026-09-10T17:00')
             ->set('total_slots', '20')
@@ -207,6 +212,26 @@ class ProgramOfferingsTest extends TestCase
         $this->assertDatabaseCount('program_offerings', 0);
     }
 
+    public function test_creating_an_offering_redirects_to_configure_requirements(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        Campus::create(['name' => 'Aparri']);
+        $program = $this->scholarshipProgram();
+        $term = $this->academicTerm();
+
+        Livewire::actingAs($admin)
+            ->test('admin::program-configuration.offerings', ['scholarshipProgram' => $program])
+            ->call('create')
+            ->set('academic_term_id', (string) $term->id)
+            ->set('name', 'Batch 1')
+            ->set('category', ScholarshipCategory::Academic->value)
+            ->set('opens_at', '2026-08-10T08:00')
+            ->set('closes_at', '2026-09-10T17:00')
+            ->set('total_slots', '20')
+            ->call('save')
+            ->assertRedirect(route('admin.offerings.configure', ProgramOffering::where('name', 'Batch 1')->firstOrFail()));
+    }
+
     public function test_admin_can_edit_an_existing_offering(): void
     {
         $admin = User::factory()->create(['role' => UserRole::Admin]);
@@ -217,7 +242,7 @@ class ProgramOfferingsTest extends TestCase
             'scholarship_program_id' => $program->id, 'academic_term_id' => $term->id, 'campus_id' => $campus->id,
             'name' => 'Batch 1',
             'opens_at' => '2026-08-10 08:00', 'closes_at' => '2026-09-10 17:00', 'total_slots' => 20,
-            'college_scope' => 'all', 'allocation_mode' => 'open',
+            'college_scope' => 'all', 'allocation_mode' => 'open', 'category' => ScholarshipCategory::Academic,
         ]);
 
         Livewire::actingAs($admin)
@@ -226,12 +251,13 @@ class ProgramOfferingsTest extends TestCase
             ->set('name', 'Batch 2')
             ->set('total_slots', '35')
             ->call('save')
-            ->assertHasNoErrors();
+            ->assertHasNoErrors()
+            ->assertNoRedirect();
 
         $this->assertDatabaseHas('program_offerings', ['id' => $offering->id, 'name' => 'Batch 2', 'total_slots' => 35]);
     }
 
-    public function test_a_new_offering_copies_the_programs_configuration(): void
+    public function test_a_new_offering_starts_with_no_form_fields_or_eligibility_rules(): void
     {
         $admin = User::factory()->create(['role' => UserRole::Admin]);
         Campus::create(['name' => 'Aparri']);
@@ -239,19 +265,12 @@ class ProgramOfferingsTest extends TestCase
         $term = $this->academicTerm();
         $college = College::create(['code' => 'CICS', 'name' => 'College of ICS']);
 
-        $program->formFields()->create([
-            'field_type' => 'file', 'label' => 'Certificate of Registration',
-            'is_required' => true, 'accepted_formats' => 'pdf', 'max_size_mb' => 5, 'sort_order' => 1,
-        ]);
-        $program->eligibilityRules()->create([
-            'field' => 'gwa', 'operator' => 'gte', 'value' => '80', 'message' => 'GWA must be 80 or better.',
-        ]);
-
         Livewire::actingAs($admin)
             ->test('admin::program-configuration.offerings', ['scholarshipProgram' => $program])
             ->call('create')
             ->set('academic_term_id', (string) $term->id)
             ->set('name', 'Batch 1')
+            ->set('category', ScholarshipCategory::Academic->value)
             ->set('opens_at', '2026-08-10T08:00')
             ->set('closes_at', '2026-09-10T17:00')
             ->set('total_slots', '20')
@@ -263,60 +282,41 @@ class ProgramOfferingsTest extends TestCase
 
         $offering = ProgramOffering::where('scholarship_program_id', $program->id)->firstOrFail();
 
-        // The requirements arrive from the template; the term's own policy does not.
         $this->assertSame('quota', $offering->allocation_mode->value);
-        $this->assertSame(1, $offering->formFields()->count());
-        $this->assertSame('Certificate of Registration', $offering->formFields()->first()->label);
-        $this->assertSame(1, $offering->eligibilityRules()->count());
-
-        // Slot numbers are this term's, not the template's.
+        $this->assertSame(0, $offering->formFields()->count());
+        $this->assertSame(0, $offering->eligibilityRules()->count());
         $this->assertSame(10, $offering->offeringColleges()->firstOrFail()->slots);
     }
 
-    public function test_editing_an_offering_does_not_change_the_program_template(): void
+    public function test_editing_one_offerings_requirements_does_not_change_a_sibling_offering(): void
     {
         Campus::create(['name' => 'Aparri']);
         $program = $this->scholarshipProgram();
         $term = $this->academicTerm();
 
-        $program->formFields()->create([
+        $offering = app(OfferingService::class)->openOffering($program, [
+            'academic_term_id' => $term->id,
+            'campus_id' => Campus::first()->id,
+            'opens_at' => '2026-08-10 08:00',
+            'closes_at' => '2026-09-10 17:00',
+            'total_slots' => 20,
+            'category' => ScholarshipCategory::Academic,
+        ]);
+        $sibling = app(OfferingService::class)->openOffering($program, [
+            'academic_term_id' => $term->id,
+            'campus_id' => Campus::first()->id,
+            'opens_at' => '2026-08-10 08:00',
+            'closes_at' => '2026-09-10 17:00',
+            'total_slots' => 20,
+            'category' => ScholarshipCategory::Academic,
+        ]);
+
+        $offering->formFields()->create([
             'field_type' => 'file', 'label' => 'Certificate of Registration',
             'is_required' => true, 'accepted_formats' => 'pdf', 'max_size_mb' => 5, 'sort_order' => 1,
         ]);
 
-        $offering = app(OfferingService::class)->openOffering($program, [
-            'academic_term_id' => $term->id,
-            'campus_id' => Campus::first()->id,
-            'opens_at' => '2026-08-10 08:00',
-            'closes_at' => '2026-09-10 17:00',
-            'total_slots' => 20,
-        ]);
-
-        $offering->formFields()->firstOrFail()->update(['label' => 'Renamed for this term']);
-
-        $this->assertSame('Certificate of Registration', $program->formFields()->firstOrFail()->label);
-        $this->assertSame('Renamed for this term', $offering->formFields()->firstOrFail()->label);
-    }
-
-    public function test_a_later_template_change_does_not_reach_an_existing_offering(): void
-    {
-        Campus::create(['name' => 'Aparri']);
-        $program = $this->scholarshipProgram();
-        $term = $this->academicTerm();
-
-        $offering = app(OfferingService::class)->openOffering($program, [
-            'academic_term_id' => $term->id,
-            'campus_id' => Campus::first()->id,
-            'opens_at' => '2026-08-10 08:00',
-            'closes_at' => '2026-09-10 17:00',
-            'total_slots' => 20,
-        ]);
-
-        $program->formFields()->create([
-            'field_type' => 'file', 'label' => 'Added after the offering opened',
-            'is_required' => true, 'accepted_formats' => 'pdf', 'max_size_mb' => 5, 'sort_order' => 1,
-        ]);
-
-        $this->assertSame(0, $offering->formFields()->count());
+        $this->assertSame(1, $offering->formFields()->count());
+        $this->assertSame(0, $sibling->formFields()->count());
     }
 }

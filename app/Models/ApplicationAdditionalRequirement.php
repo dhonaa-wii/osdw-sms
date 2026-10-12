@@ -3,13 +3,13 @@
 namespace App\Models;
 
 use App\Concerns\Auditable;
+use App\Enums\DocumentStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * One applicant's receipt for one of the offering's additional requirements.
- * The row exists only once the item has been handed in — no row means the
- * applicant still owes it.
+ * One applicant's submission against one additional requirement — the
+ * uploaded file and its review, and/or the physical copy staff received.
  */
 class ApplicationAdditionalRequirement extends Model
 {
@@ -18,19 +18,43 @@ class ApplicationAdditionalRequirement extends Model
     protected $fillable = [
         'application_id',
         'offering_additional_requirement_id',
-        'received_at',
         'file_path',
         'original_name',
         'mime_type',
         'file_size',
-        'received_by',
+        'submitted_at',
+        'status',
+        'remarks',
+        'verified_by',
+        'verified_at',
+        'physical_received_at',
+        'physical_received_by',
     ];
 
     protected function casts(): array
     {
         return [
-            'received_at' => 'datetime',
+            'status' => DocumentStatus::class,
+            'submitted_at' => 'datetime',
+            'verified_at' => 'datetime',
+            'physical_received_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Complied means every part the requirement asks for is in: the upload
+     * verified (if it needs one) and the physical copy received (if it
+     * needs one).
+     */
+    public function isComplied(): bool
+    {
+        $mode = $this->requirement->submission_mode;
+
+        if ($mode->needsUpload() && ($this->file_path === null || $this->status !== DocumentStatus::Verified)) {
+            return false;
+        }
+
+        return ! $mode->needsPhysical() || $this->physical_received_at !== null;
     }
 
     public function application(): BelongsTo
@@ -38,13 +62,13 @@ class ApplicationAdditionalRequirement extends Model
         return $this->belongsTo(Application::class);
     }
 
-    public function offeringAdditionalRequirement(): BelongsTo
+    public function requirement(): BelongsTo
     {
-        return $this->belongsTo(OfferingAdditionalRequirement::class);
+        return $this->belongsTo(OfferingAdditionalRequirement::class, 'offering_additional_requirement_id');
     }
 
-    public function receivedBy(): BelongsTo
+    public function verifiedBy(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'received_by');
+        return $this->belongsTo(User::class, 'verified_by');
     }
 }

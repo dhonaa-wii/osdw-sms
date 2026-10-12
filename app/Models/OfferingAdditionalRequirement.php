@@ -2,33 +2,39 @@
 
 namespace App\Models;
 
-use App\Concerns\Auditable;
-use App\Enums\RequirementSubmission;
+use App\Enums\RequirementStage;
+use App\Enums\SubmissionMode;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * An item staff ask every shortlisted applicant of one offering for, on top of
- * the offering's own form fields — a hard copy the provider wants, an affidavit
- * the agency asked for late. Set once per offering; each applicant is then
- * ticked off individually as their copy comes in.
+ * Something an offering asks for beyond its application form — at the
+ * shortlist stage (gates the award) or after the award (for disbursement).
+ * Configured on the offering's Requirements page; never shared with a
+ * sibling offering.
  */
 class OfferingAdditionalRequirement extends Model
 {
-    use Auditable;
-
     protected $fillable = [
         'program_offering_id',
+        'stage',
         'label',
+        'instructions',
         'submission_mode',
-        'created_by',
+        'accepted_formats',
+        'max_size_mb',
+        'template_path',
+        'template_name',
+        'sort_order',
     ];
 
     protected function casts(): array
     {
         return [
-            'submission_mode' => RequirementSubmission::class,
+            'stage' => RequirementStage::class,
+            'submission_mode' => SubmissionMode::class,
+            'max_size_mb' => 'integer',
         ];
     }
 
@@ -37,12 +43,7 @@ class OfferingAdditionalRequirement extends Model
         return $this->belongsTo(ProgramOffering::class);
     }
 
-    public function createdBy(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'created_by');
-    }
-
-    public function receipts(): HasMany
+    public function submissions(): HasMany
     {
         return $this->hasMany(ApplicationAdditionalRequirement::class);
     }

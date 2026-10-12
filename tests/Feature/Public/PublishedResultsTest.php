@@ -33,12 +33,11 @@ class PublishedResultsTest extends TestCase
         $provider = Provider::create(['name' => 'DOST-SEI '.Str::random(4), 'funding_source' => FundingSource::NationalGovernment]);
         $scholarshipProgram = ScholarshipProgram::create([
             'name' => 'DOST-SEI Fellowship', 'provider_id' => $provider->id,
-            'category' => ScholarshipCategory::Academic,
         ]);
         $offering = ProgramOffering::create([
             'scholarship_program_id' => $scholarshipProgram->id, 'academic_term_id' => $term->id, 'campus_id' => $campus->id,
             'opens_at' => '2026-08-10 08:00', 'closes_at' => '2026-09-10 17:00', 'total_slots' => 5,
-            'college_scope' => 'all', 'allocation_mode' => 'open',
+            'college_scope' => 'all', 'allocation_mode' => 'open', 'category' => ScholarshipCategory::Academic,
             'amount' => 5000, 'results_published' => $resultsPublished,
         ]);
         $college = College::create(['code' => 'C'.Str::random(3), 'name' => 'College of ICS']);
@@ -47,17 +46,15 @@ class PublishedResultsTest extends TestCase
             'sex' => 'male', 'email' => Str::random(6).'@example.com',
         ]);
         $application = $applicant->applications()->create([
-            'reference_no' => 'SCH-2026-'.Str::random(6), 'access_token' => str_repeat('a', 64),
+            'access_token' => str_repeat('a', 64),
             'program_offering_id' => $offering->id, 'college_id' => $college->id,
-            'year_level' => 2, 'status' => 'accepted', 'submitted_at' => now(), 'consent_publish' => $consentPublish,
+            'year_level' => 2, 'status' => 'awarded', 'submitted_at' => now(), 'consent_publish' => $consentPublish,
         ]);
         $staff = User::factory()->create();
 
         return Award::create([
             'application_id' => $application->id, 'applicant_id' => $applicant->id, 'program_offering_id' => $offering->id,
             'academic_term_id' => $term->id, 'amount' => 5000, 'awarded_by' => $staff->id, 'awarded_at' => now(),
-            'acceptance_status' => 'accepted', 'accepted_at' => now(),
-            'status' => 'active',
         ]);
     }
 

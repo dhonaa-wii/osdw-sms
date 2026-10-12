@@ -23,8 +23,8 @@ class LandingPageTest extends TestCase
     {
         $this->get('/')
             ->assertOk()
-            ->assertSee('Browse open scholarships')
-            ->assertSee('Track your application');
+            ->assertSee('Browse scholarships')
+            ->assertSee('View published results');
     }
 
     public function test_landing_page_shows_open_offerings_and_live_counts(): void
@@ -33,7 +33,6 @@ class LandingPageTest extends TestCase
         $provider = Provider::create(['name' => 'DOST-SEI', 'funding_source' => FundingSource::NationalGovernment, 'is_active' => true]);
         $scholarshipProgram = ScholarshipProgram::create([
             'name' => 'DOST-SEI Fellowship', 'provider_id' => $provider->id,
-            'category' => ScholarshipCategory::Academic,
         ]);
         $term = AcademicTerm::create([
             'school_year' => '2026-2027', 'semester' => Semester::First,
@@ -42,7 +41,7 @@ class LandingPageTest extends TestCase
         ProgramOffering::create([
             'scholarship_program_id' => $scholarshipProgram->id, 'academic_term_id' => $term->id, 'campus_id' => Campus::first()->id,
             'opens_at' => now()->subDay(), 'closes_at' => now()->addMonth(), 'total_slots' => 20,
-            'college_scope' => 'all', 'allocation_mode' => 'open',
+            'college_scope' => 'all', 'allocation_mode' => 'open', 'category' => ScholarshipCategory::Academic,
         ]);
 
         $this->get('/')

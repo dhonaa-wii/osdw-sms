@@ -18,7 +18,7 @@ class AwardNoticeMail extends Mailable
 
     public function build(): self
     {
-        return $this->subject('You have been awarded a scholarship')
+        return $this->subject($this->award->application->isRenewal() ? 'Your scholarship has been renewed' : 'You have been awarded a scholarship')
             ->markdown('emails.award-notice');
     }
 }

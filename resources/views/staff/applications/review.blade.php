@@ -1,9 +1,15 @@
 <?php
 
+use App\Enums\ApplicationStatus;
+use App\Enums\RequirementStage;
 use App\Models\Application;
 use App\Models\ApplicationDocument;
 use App\Models\ApplicationStatusLog;
 use App\Services\AwardService;
+use App\Services\OfferingRequirementService;
+use App\Services\ScholarshipHoldingService;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Collection;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
@@ -14,18 +20,16 @@ new #[Layout('layouts::staff', array('title' => 'Review Application'))] class ex
 
     public string $decisionRemarks = '';
 
-    public bool $showAwardForm = false;
-
-    public bool $showForfeitForm = false;
-
-    public string $forfeitReason = '';
-
-    public ?string $successMessage = null;
-
     public function mount(Application $application): void
     {
+        // Renewals have their own review page (renewal requirements only).
+        if ($application->isRenewal()) {
+            throw new HttpResponseException(new RedirectResponse(route('staff.renewals.review', $application)));
+        }
+
         $this->application = $application->load([
             'applicant.applications.programOffering.scholarshipProgram',
+            'applicant.applications.programOffering.academicTerm',
             'applicant.applications.award',
             'applicant.awards',
             'programOffering.scholarshipProgram',
@@ -43,21 +47,23 @@ new #[Layout('layouts::staff', array('title' => 'Review Application'))] class ex
         $document = $this->application->documents()->findOrFail($documentId);
         $document->update(['status' => 'verified', 'verified_by' => auth()->id(), 'verified_at' => now()]);
         $this->application->refresh();
-        $this->successMessage = 'Document verified.';
     }
 
-    public function rejectDocument(int $documentId, string $remarks): void
+    /** Returns whether the document was rejected, so the reason field can close. */
+    public function rejectDocument(int $documentId, string $remarks): bool
     {
         if (trim($remarks) === '') {
-            $this->addError('remarks', 'Explain why this document is being rejected.');
+            $this->dispatch('notice', title: 'Reason needed', message: 'Explain why this document is being rejected.', tone: 'error');
 
-            return;
+            return false;
         }
 
         $document = $this->application->documents()->findOrFail($documentId);
-        $document->update(['status' => 'rejected', 'verified_by' => auth()->id(), 'verified_at' => now(), 'remarks' => $remarks]);
+        $document->update(['status' => 'rejected', 'verified_by' => auth()->id(), 'verified_at' => now(), 'remarks' => trim($remarks)]);
         $this->application->refresh();
-        $this->successMessage = 'Document rejected.';
+        $this->dispatch('notice', title: 'Document rejected', message: $document->offeringFormField->label);
+
+        return true;
     }
 
     public function togglePhysicalReceived(int $documentId): void
@@ -70,10 +76,44 @@ new #[Layout('layouts::staff', array('title' => 'Review Application'))] class ex
         $this->application->refresh();
     }
 
+    public function verifyRequirement(int $submissionId, OfferingRequirementService $service): void
+    {
+        $service->verify($this->application->additionalRequirementSubmissions()->findOrFail($submissionId), auth()->user());
+    }
+
+    public function rejectRequirement(int $submissionId, string $remarks, OfferingRequirementService $service): bool
+    {
+        if (trim($remarks) === '') {
+            $this->dispatch('notice', title: 'Reason needed', message: 'Tell the applicant what to fix before returning the upload.', tone: 'error');
+
+            return false;
+        }
+
+        $service->reject($this->application->additionalRequirementSubmissions()->findOrFail($submissionId), trim($remarks), auth()->user());
+        $this->dispatch('notice', title: 'Upload returned', message: 'The applicant can upload a corrected file from their tracking page.');
+
+        return true;
+    }
+
+    public function togglePhysicalRequirement(int $requirementId, OfferingRequirementService $service): void
+    {
+        $service->togglePhysicalReceived(
+            $this->application,
+            $this->application->programOffering->additionalRequirements()->findOrFail($requirementId),
+            auth()->user(),
+        );
+    }
+
     public function endorse(): void
     {
         if ($this->unverifiedDocuments()->isNotEmpty()) {
-            $this->addError('decisionRemarks', 'All documents must be verified — with physical copies received where required — before you can endorse this application.');
+            $this->dispatch('notice', title: 'Documents not verified', message: 'Verify every document — with physical copies received where required — before endorsing.', tone: 'error');
+
+            return;
+        }
+
+        if ($blocker = app(ScholarshipHoldingService::class)->awardBlocker($this->application)) {
+            $this->dispatch('notice', title: 'Can\'t endorse', message: $blocker, tone: 'error');
 
             return;
         }
@@ -99,12 +139,6 @@ new #[Layout('layouts::staff', array('title' => 'Review Application'))] class ex
 
     protected function decide(string $toStatus): void
     {
-        if (trim($this->decisionRemarks) === '') {
-            $this->addError('decisionRemarks', 'Remarks are required.');
-
-            return;
-        }
-
         $from = $this->application->status;
         $this->application->update(['status' => $toStatus]);
 
@@ -113,316 +147,297 @@ new #[Layout('layouts::staff', array('title' => 'Review Application'))] class ex
             'from_status' => $from,
             'to_status' => $toStatus,
             'changed_by' => auth()->id(),
-            'reason' => $this->decisionRemarks,
+            'reason' => trim($this->decisionRemarks) ?: null,
         ]);
 
         $this->application->refresh();
         $this->decisionRemarks = '';
-        $this->successMessage = 'Application '.($toStatus === 'shortlisted' ? 'endorsed.' : 'rejected.');
+        $this->dispatch(
+            'notice',
+            title: $toStatus === 'shortlisted' ? 'Application endorsed' : 'Application rejected',
+            message: $toStatus === 'shortlisted' ? 'The applicant is now on the shortlist.' : 'The applicant can see the outcome on their tracking page.',
+        );
     }
 
-    public function startAward(): void
-    {
-        $this->showAwardForm = true;
-        $this->resetValidation();
-    }
-
-    public function confirmAward(): void
+    public function award(): void
     {
         $service = app(AwardService::class);
         $offering = $this->application->programOffering;
         $collegeId = $offering->allocation_mode->value === 'quota' ? $this->application->college_id : null;
 
-        if ($this->application->outstandingAdditionalRequirements()->isNotEmpty()) {
-            $this->addError('slots', 'Mark every additional requirement received before awarding.');
-
-            return;
-        }
-
         if ($service->remainingSlots($offering, $collegeId) <= 0) {
-            $this->addError('slots', 'No slots remaining.');
+            $this->dispatch('notice', title: 'No slots remaining', message: 'Every slot for this offering is already awarded.', tone: 'error');
 
             return;
         }
 
-        $service->create($this->application, auth()->user());
-
-        $this->showAwardForm = false;
-        $this->application->refresh();
-        $this->successMessage = 'Award recorded and notice sent.';
-    }
-
-    public function startForfeit(): void
-    {
-        $this->showForfeitForm = true;
-        $this->forfeitReason = '';
-        $this->resetValidation();
-    }
-
-    public function confirmForfeit(): void
-    {
-        if (trim($this->forfeitReason) === '') {
-            $this->addError('forfeitReason', 'A reason is required.');
+        if (app(OfferingRequirementService::class)->outstandingCount($this->application, RequirementStage::Shortlist) > 0) {
+            $this->dispatch('notice', title: 'Requirements outstanding', message: 'Verify every shortlist requirement before awarding.', tone: 'error');
 
             return;
         }
 
-        app(AwardService::class)->forfeit($this->application->award, auth()->user(), $this->forfeitReason);
+        try {
+            $service->create($this->application, auth()->user());
+        } catch (\RuntimeException $exception) {
+            $this->dispatch('notice', title: 'Couldn\'t award', message: $exception->getMessage(), tone: 'error');
 
-        $this->showForfeitForm = false;
+            return;
+        }
+
         $this->application->refresh();
-        $this->successMessage = 'Award forfeited.';
+        $this->dispatch('notice', title: 'Award recorded', message: 'The applicant has been emailed the award notice.');
     }
 
     public function with(): array
     {
-        $data = [];
+        $holdings = app(ScholarshipHoldingService::class);
 
-        if ($this->application->status->value === 'shortlisted' && ! $this->application->award) {
-            $data['conflictingAward'] = app(AwardService::class)->conflictingAward($this->application);
-            $data['outstandingRequirements'] = $this->application->outstandingAdditionalRequirements();
-        }
+        // Scholarships held in other programs, and whether one of them is a
+        // national scholarship that rules this application out.
+        $data = [
+            'heldAwards' => $holdings->heldAwards($this->application->applicant_id, $this->application->programOffering),
+            'nationalBlocker' => $this->application->award ? null : $holdings->awardBlocker($this->application),
+        ];
 
         $data['unverifiedDocuments'] = $this->unverifiedDocuments();
+
+        // Shortlisted: the requirements gating the award. Awarded: those for
+        // the record, then the disbursement requirements.
+        $requirementService = app(OfferingRequirementService::class);
+        $stages = match ($this->application->status) {
+            ApplicationStatus::Shortlisted => [RequirementStage::Shortlist],
+            ApplicationStatus::Awarded => [RequirementStage::Shortlist, RequirementStage::Award],
+            default => [],
+        };
+
+        $data['requirementChecklists'] = collect($stages)
+            ->map(fn (RequirementStage $stage) => ['stage' => $stage, 'rows' => $requirementService->checklist($this->application, $stage)])
+            ->filter(fn ($group) => $group['rows']->isNotEmpty())
+            ->values();
+
+        $data['outstandingShortlist'] = $this->application->status === ApplicationStatus::Shortlisted
+            ? $requirementService->outstandingCount($this->application, RequirementStage::Shortlist)
+            : 0;
 
         return $data;
     }
 };
 ?>
 
+@php
+    $applicant = $application->applicant;
+    $offering = $application->programOffering;
+    $fullName = $applicant->first_name.' '.$applicant->last_name;
+    $verifiedCount = $application->documents->where('status', \App\Enums\DocumentStatus::Verified)->count();
+    $otherApplications = $applicant->applications->where('id', '!=', $application->id)->sortByDesc('created_at');
+@endphp
+
 <div>
-    <x-ui.back-link :href="route('staff.applications.workspace', $application->programOffering)" label="Back to queue" />
+    <x-ui.back-link
+        :href="route('staff.applications.workspace', ['offering' => $offering, 'tab' => $application->status === ApplicationStatus::Shortlisted ? 'shortlist' : 'queue'])"
+        :label="$offering->scholarshipProgram->name.' · '.$offering->displayName()"
+        wire:navigate
+    />
 
-    <div class="mt-3 flex items-start justify-between gap-4">
-        <div>
-            <h1 class="font-display text-[28px] font-600 text-ink">{{ $application->applicant->last_name }}, {{ $application->applicant->first_name }}</h1>
-            <p class="mt-1 font-body text-[14px] text-slate">
-                <span class="font-mono">{{ $application->reference_no }}</span> &middot; {{ $application->programOffering->scholarshipProgram->name }}
-            </p>
-        </div>
-        <x-ui.status-stamp :status="$application->status" class="shrink-0" />
-    </div>
+    <x-staff.review-header class="mt-3" :application="$application" :applicant="$applicant" />
 
-    @if ($successMessage)
-        <x-ui.alert type="success" class="mt-4">{{ $successMessage }}</x-ui.alert>
-    @endif
-
-    <div class="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div class="lg:col-span-2 space-y-6">
-            <div class="rounded-card border border-line bg-surface p-5">
-                <p class="font-body text-[11px] font-600 uppercase tracking-[0.08em] text-mist">Applicant</p>
-                <div class="mt-3 grid grid-cols-2 gap-3 font-body text-[14px] text-ink sm:grid-cols-3">
-                    <div><span class="text-slate">Student ID</span><br><span class="font-mono">{{ $application->applicant->student_id }}</span></div>
-                    <div><span class="text-slate">Sex</span><br>{{ $application->applicant->sex->label() }}</div>
-                    <div><span class="text-slate">Email</span><br>{{ $application->applicant->email }}</div>
-                    <div><span class="text-slate">College</span><br>{{ $application->college->name }}</div>
-                    <div><span class="text-slate">Year level</span><br>{{ $application->year_level }}</div>
-                    <div><span class="text-slate">GWA</span><br><span class="font-mono">{{ $application->gwa ?? '&mdash;' }}</span></div>
-                    <div><span class="text-slate">Monthly income</span><br><span class="font-mono">{{ $application->monthly_income ? number_format($application->monthly_income, 2) : '&mdash;' }}</span></div>
-                    <div><span class="text-slate">Consent to publish</span><br>{{ $application->consent_publish ? 'Yes' : 'No' }}</div>
-                </div>
+    <div class="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <div class="space-y-5 lg:col-span-2">
+            <x-staff.review-card icon="user" title="Applicant details">
+                <dl class="grid grid-cols-2 gap-x-4 gap-y-3 px-4 py-3.5 sm:grid-cols-3">
+                    <x-staff.review-fact label="Email">{{ $applicant->email }}</x-staff.review-fact>
+                    <x-staff.review-fact label="Sex">{{ $applicant->sex->label() }}</x-staff.review-fact>
+                    <x-staff.review-fact label="College">{{ $application->college->name }}</x-staff.review-fact>
+                    <x-staff.review-fact label="Year level"><span class="font-mono">{{ $application->year_level }}</span></x-staff.review-fact>
+                    <x-staff.review-fact label="GWA"><span class="font-mono">{{ $application->gwa ?? '—' }}</span></x-staff.review-fact>
+                    <x-staff.review-fact label="Family monthly income"><span class="font-mono">{{ $application->monthly_income ? number_format($application->monthly_income, 2) : '—' }}</span></x-staff.review-fact>
+                    <x-staff.review-fact label="Consent to publish">{{ $application->consent_publish ? 'Yes' : 'No' }}</x-staff.review-fact>
+                    <x-staff.review-fact label="Submitted"><span class="font-mono">{{ $application->submitted_at?->format('M j, Y') ?? '—' }}</span></x-staff.review-fact>
+                </dl>
 
                 @if ($application->fieldResponses->isNotEmpty())
-                    <div class="mt-4 border-t border-line pt-4">
-                        <p class="font-body text-[11px] font-600 uppercase tracking-[0.08em] text-mist">Additional answers</p>
-                        <dl class="mt-2 space-y-2">
-                            @foreach ($application->fieldResponses as $response)
-                                <div>
-                                    <dt class="font-body text-[13px] text-slate">{{ $response->offeringFormField->label }}</dt>
-                                    <dd class="font-body text-[14px] text-ink">{{ $response->value }}</dd>
-                                </div>
-                            @endforeach
-                        </dl>
-                    </div>
+                    <dl class="grid grid-cols-1 gap-x-4 gap-y-3 border-t border-line px-4 py-3.5 sm:grid-cols-2">
+                        @foreach ($application->fieldResponses as $response)
+                            <x-staff.review-fact :label="$response->offeringFormField->label">{{ $response->value }}</x-staff.review-fact>
+                        @endforeach
+                    </dl>
                 @endif
-            </div>
+            </x-staff.review-card>
 
-            <div class="rounded-card border border-line bg-surface p-5">
-                <p class="font-body text-[11px] font-600 uppercase tracking-[0.08em] text-mist">Documents</p>
-                <div class="mt-3 space-y-3">
+            <x-staff.review-card icon="form" title="Documents">
+                <x-staff.document-group title="Application documents" icon="form" :complied="$verifiedCount" :total="$application->documents->count()" verb="verified">
                     @forelse ($application->documents as $document)
-                        <div class="rounded-control border border-line bg-paper p-3 transition hover:border-forest-600" x-data="{ rejecting: false, remarks: '' }">
-                            <div class="flex flex-wrap items-center justify-between gap-2">
-                                <div class="flex items-center gap-3">
-                                    @if (str_starts_with((string) $document->mime_type, 'image/'))
-                                        <a href="{{ route('staff.applications.documents.show', $document) }}" target="_blank" rel="noopener">
-                                            <img src="{{ route('staff.applications.documents.show', $document) }}" alt="{{ $document->offeringFormField->label }}" class="size-12 shrink-0 rounded-control border border-line object-cover">
-                                        </a>
-                                    @endif
-                                    <div>
-                                        <p class="font-body text-[14px] text-ink">{{ $document->offeringFormField->label }}</p>
-                                        <p class="font-body text-[12px] text-slate">{{ $document->original_name }} &middot; {{ $document->status->label() }}</p>
-                                    </div>
-                                </div>
-                                <div class="flex items-center gap-3">
-                                    <a href="{{ route('staff.applications.documents.show', $document) }}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 font-body text-[13px] font-500 text-forest-700 hover:underline">
-                                        <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12S6 5 12 5s9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7Z" /><circle cx="12" cy="12" r="3" /></svg>
-                                        View
-                                    </a>
-                                    @if ($document->offeringFormField->requires_physical_copy)
-                                        <label class="flex items-center gap-1 font-body text-[12px] text-slate">
-                                            <input
-                                                type="checkbox"
-                                                class="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest-600 focus-visible:ring-offset-2"
-                                                wire:click="togglePhysicalReceived({{ $document->id }})"
-                                                wire:loading.attr="disabled"
-                                                wire:target="togglePhysicalReceived({{ $document->id }})"
-                                                @checked($document->physical_received)
-                                            >
-                                            Physical copy received
-                                        </label>
-                                    @endif
-                                    @if ($document->status->value !== 'verified')
-                                        <button type="button" wire:click="verifyDocument({{ $document->id }})" class="font-body text-[13px] text-forest-700 hover:underline">Verify</button>
-                                        <button type="button" @click="rejecting = !rejecting" class="font-body text-[13px] text-crimson-600 hover:underline">Reject</button>
-                                    @endif
-                                </div>
-                            </div>
-                            <div x-show="rejecting" x-cloak class="mt-2 flex gap-2">
-                                <input type="text" x-model="remarks" placeholder="Reason for rejection" class="flex-1 rounded-control border border-line bg-surface px-2 py-1 text-[13px]">
-                                <button type="button" @click="$wire.rejectDocument({{ $document->id }}, remarks)" class="font-body text-[13px] font-500 text-crimson-600 hover:underline">Confirm reject</button>
-                            </div>
-                        </div>
-                    @empty
-                        <p class="font-body text-[14px] text-mist">No documents uploaded.</p>
-                    @endforelse
-                </div>
-            </div>
+                        @php
+                            $label = $document->offeringFormField->label;
+                            $statusTone = match ($document->status->value) { 'verified' => 'text-navy-700', 'rejected' => 'text-crimson-600', default => 'text-amber-600' };
+                        @endphp
+                        <x-staff.document-item
+                            :url="route('staff.applications.documents.show', $document)"
+                            :name="$document->original_name"
+                            :mime="$document->mime_type"
+                            :label="$label"
+                            wire:key="document-{{ $document->id }}-{{ crc32($document->file_path) }}"
+                            x-data="{ rejecting: false, remarks: '' }"
+                        >
+                            <x-slot:meta>
+                                <span class="shrink-0 {{ $statusTone }}">{{ $document->status->label() }}</span>
+                                <span class="text-mist">&middot;</span>
+                                <span class="truncate text-mist">{{ $document->status->value === 'rejected' && $document->remarks ? $document->remarks : $document->original_name }}</span>
+                            </x-slot:meta>
 
+                            <x-slot:actions>
+                                @if ($document->offeringFormField->requires_physical_copy)
+                                    <x-staff.physical-copy-toggle :received="$document->physical_received" action="togglePhysicalReceived({{ $document->id }})" />
+                                @endif
+                                @if ($document->status->value !== 'verified')
+                                    @if ($document->status->value !== 'rejected')
+                                        <x-ui.button variant="secondary" class="h-8 px-3 py-0 text-[13px] text-crimson-600" x-on:click="rejecting = ! rejecting; $nextTick(() => $refs.reason?.focus())">
+                                            <x-ui.icon name="x" class="size-3.5" /> Reject
+                                        </x-ui.button>
+                                    @endif
+                                    <x-ui.button class="h-8 px-3 py-0 text-[13px]" wire:click="verifyDocument({{ $document->id }})" loading="verifyDocument({{ $document->id }})">
+                                        <x-ui.icon name="check" class="size-3.5" /> Verify
+                                    </x-ui.button>
+                                @endif
+                            </x-slot:actions>
+
+                            <x-staff.reason-form
+                                show="rejecting"
+                                submit="if (await $wire.rejectDocument({{ $document->id }}, remarks)) { rejecting = false; remarks = ''; }"
+                                :id="'reject-remarks-'.$document->id"
+                                :label="'Reason for rejecting '.$label"
+                                placeholder="What the applicant needs to fix"
+                                cancel="rejecting = false"
+                                loading="rejectDocument"
+                            >Reject document</x-staff.reason-form>
+                        </x-staff.document-item>
+                    @empty
+                        <x-ui.list-empty icon="form" title="No documents uploaded" class="py-8" />
+                    @endforelse
+                </x-staff.document-group>
+
+                @foreach ($requirementChecklists as $group)
+                    <x-staff.requirement-checklist :stage="$group['stage']" :rows="$group['rows']" />
+                @endforeach
+            </x-staff.review-card>
         </div>
 
-        <div class="space-y-6">
-            <div class="rounded-card border border-line bg-surface p-5">
-                <p class="font-body text-[11px] font-600 uppercase tracking-[0.08em] text-mist">Screening</p>
-                <ul class="mt-2 space-y-2">
-                    @foreach ($application->screenings as $screening)
+        <div class="space-y-5">
+            <x-staff.scholarships-held :awards="$heldAwards" :blocker="$nationalBlocker" />
+
+            @if ($application->status === ApplicationStatus::Screening)
+                @php $blocked = $unverifiedDocuments->isNotEmpty(); @endphp
+                <x-staff.review-card icon="clipboard-check" title="Decision">
+                    <div class="space-y-3 px-4 py-3.5">
+                        @if ($nationalBlocker)
+                            <p class="flex items-start gap-1.5 font-body text-[12px] text-crimson-600">
+                                <x-ui.icon name="alert-circle" class="mt-px size-4 shrink-0" />
+                                Already holds a national scholarship, so this application can't be endorsed.
+                            </p>
+                        @elseif ($blocked)
+                            <p class="flex items-start gap-1.5 font-body text-[12px] text-amber-600">
+                                <x-ui.icon name="alert-circle" class="mt-px size-4 shrink-0" />
+                                Verify every document and confirm physical copies to endorse.
+                            </p>
+                        @endif
+
+                        <x-ui.textarea name="decisionRemarks" label="Remarks" wire:model="decisionRemarks" rows="2" placeholder="Optional — saved on the timeline" />
+
+                        <div class="grid grid-cols-2 gap-2">
+                            <x-ui.button
+                                variant="secondary"
+                                class="text-crimson-600"
+                                loading="reject"
+                                x-on:click="$store.confirm.ask({
+                                    title: {{ \Illuminate\Support\Js::from('Reject '.$fullName.'?') }},
+                                    message: 'The application leaves the queue. This can’t be undone.',
+                                    confirmLabel: 'Reject application',
+                                    action: () => $wire.reject(),
+                                })"
+                            >
+                                <x-ui.icon name="x" class="size-4" />
+                                Reject
+                            </x-ui.button>
+                            <x-ui.button
+                                loading="endorse"
+                                :disabled="$blocked || $nationalBlocker"
+                                x-on:click="$store.confirm.ask({
+                                    title: {{ \Illuminate\Support\Js::from('Endorse '.$fullName.'?') }},
+                                    message: 'The application moves to the shortlist.',
+                                    confirmLabel: 'Endorse application',
+                                    tone: 'primary',
+                                    action: () => $wire.endorse(),
+                                })"
+                            >
+                                <x-ui.icon name="check" class="size-4" />
+                                Endorse
+                            </x-ui.button>
+                        </div>
+                    </div>
+                </x-staff.review-card>
+            @endif
+
+            @if ($application->award)
+                <div class="rounded-card border border-line border-l-2 border-l-gold-600 bg-surface px-4 py-3.5">
+                    <div class="flex items-center gap-2">
+                        <x-ui.icon name="award" class="size-4 text-gold-600" />
+                        <p class="font-body text-[13px] text-slate">Awarded <span class="font-mono text-[12px]">{{ $application->award->awarded_at->format('M j, Y') }}</span></p>
+                    </div>
+                    <p class="mt-1 font-mono text-[20px] text-ink">₱{{ number_format($application->award->amount, 2) }}</p>
+                </div>
+            @elseif ($application->status === ApplicationStatus::Shortlisted)
+                <x-staff.review-card icon="award" title="Award">
+                    <div class="space-y-3 px-4 py-3.5">
+                        @if ($nationalBlocker)
+                            <p class="flex items-start gap-1.5 font-body text-[12px] text-crimson-600">
+                                <x-ui.icon name="alert-circle" class="mt-px size-4 shrink-0" />
+                                Already holds a national scholarship, so this application can't be awarded.
+                            </p>
+                        @endif
+
+                        @if ($outstandingShortlist > 0)
+                            <p class="flex items-start gap-1.5 font-body text-[12px] text-amber-600">
+                                <x-ui.icon name="clock" class="mt-px size-4 shrink-0" />
+                                {{ $outstandingShortlist }} shortlist {{ str('requirement')->plural($outstandingShortlist) }} still to comply with.
+                            </p>
+                        @endif
+
+                        <x-ui.button
+                            class="w-full"
+                            loading="award"
+                            :disabled="$outstandingShortlist > 0 || $nationalBlocker"
+                            x-on:click="$store.confirm.ask({
+                                title: {{ \Illuminate\Support\Js::from('Award '.$fullName.'?') }},
+                                message: 'The award is recorded and the notice is emailed right away. This can’t be undone.',
+                                confirmLabel: 'Record award',
+                                tone: 'primary',
+                                action: () => $wire.award(),
+                            })"
+                        >
+                            <x-ui.icon name="award" class="size-4" />
+                            Award scholarship
+                        </x-ui.button>
+                    </div>
+                </x-staff.review-card>
+            @endif
+
+            <x-staff.review-card icon="check-square" title="Screening">
+                <ul class="space-y-2 px-4 py-3.5">
+                    @forelse ($application->screenings as $screening)
                         <li class="flex items-start gap-2 font-body text-[13px] {{ $screening->passed ? 'text-slate' : 'text-crimson-600' }}">
-                            @if ($screening->passed)
-                                <svg class="mt-0.5 size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7" /></svg>
-                            @else
-                                <svg class="mt-0.5 size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
-                            @endif
+                            <x-ui.icon :name="$screening->passed ? 'check' : 'x'" class="mt-0.5 size-3.5 shrink-0" />
                             {{ $screening->message }}
                         </li>
-                    @endforeach
+                    @empty
+                        <li class="font-body text-[13px] text-mist">No eligibility checks on this offering.</li>
+                    @endforelse
                 </ul>
-            </div>
+            </x-staff.review-card>
 
-            @if ($application->status->value === 'screening')
-                <div class="rounded-card border border-line bg-surface p-5">
-                    <p class="font-body text-[11px] font-600 uppercase tracking-[0.08em] text-mist">Decision</p>
+            <x-staff.other-applications :applications="$otherApplications" />
 
-                    @if (($unverifiedDocuments ?? collect())->isNotEmpty())
-                        <p class="mt-2 flex items-start gap-1.5 font-body text-[12px] text-amber-600">
-                            <svg class="mt-0.5 size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" /></svg>
-                            Verify all documents and confirm physical copies received before you can endorse.
-                        </p>
-                    @endif
-
-                    <textarea wire:model="decisionRemarks" rows="2" placeholder="Remarks (required)" class="mt-2 w-full rounded-control border border-line bg-paper px-2 py-1 text-[13px]"></textarea>
-                    @error('decisionRemarks')<p class="font-body text-[12px] text-crimson-600">{{ $message }}</p>@enderror
-                    <div class="mt-2 flex gap-2">
-                        <x-ui.button wire:click="endorse" :disabled="($unverifiedDocuments ?? collect())->isNotEmpty()">Endorse</x-ui.button>
-                        <x-ui.button variant="danger" wire:click="reject">Reject</x-ui.button>
-                    </div>
-                </div>
-            @endif
-
-            @if ($application->award && $application->award->status->value !== 'terminated')
-                @php $award = $application->award; @endphp
-                <div class="rounded-card border border-line bg-surface p-5">
-                    <p class="font-body text-[11px] font-600 uppercase tracking-[0.08em] text-mist">Award</p>
-                    <div class="mt-2 flex flex-wrap items-center gap-3">
-                        <x-ui.status-stamp :status="$award->acceptance_status" />
-                        <x-ui.status-stamp :status="$award->status" />
-                    </div>
-
-                    <div class="mt-3 flex gap-3">
-                        <button type="button" wire:click="$set('showForfeitForm', true)" class="font-body text-[13px] text-crimson-600 hover:underline">Forfeit</button>
-                    </div>
-
-                    @if ($showForfeitForm)
-                        <div class="mt-3 border-t border-line pt-3">
-                            <x-ui.textarea name="forfeitReason" wire:model="forfeitReason" rows="2" placeholder="Reason for forfeiture (required)" />
-                            <div class="mt-2 flex gap-2">
-                                <x-ui.button variant="secondary" type="button" wire:click="$set('showForfeitForm', false)">Cancel</x-ui.button>
-                                <x-ui.button variant="danger" wire:click="confirmForfeit">Confirm forfeiture</x-ui.button>
-                            </div>
-                        </div>
-                    @endif
-                </div>
-            @elseif ($application->status->value === 'shortlisted')
-                <div class="rounded-card border border-line bg-surface p-5">
-                    <p class="font-body text-[11px] font-600 uppercase tracking-[0.08em] text-mist">Award</p>
-                    <p class="mt-2 font-body text-[13px] text-slate">Shortlisted, awaiting award.</p>
-
-                    @if ($conflictingAward ?? null)
-                        <p class="mt-2 flex items-center gap-1.5 font-body text-[12px] text-crimson-600">
-                            <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="5" /><path d="m8.5 12.5-1.5 7L12 17l5 2.5-1.5-7" /></svg>
-                            Holds another active award ({{ $conflictingAward->programOffering->scholarshipProgram->name ?? 'another offering' }}).
-                        </p>
-                    @endif
-
-                    @php $outstanding = $outstandingRequirements ?? collect(); @endphp
-                    @if ($outstanding->isNotEmpty())
-                        <div class="mt-3 border-t border-line pt-3">
-                            <p class="font-body text-[11px] font-600 uppercase tracking-[0.08em] text-amber-600">Still owed</p>
-                            <ul class="mt-1 space-y-1">
-                                @foreach ($outstanding as $requirement)
-                                    <li class="font-body text-[13px] text-ink">
-                                        {{ $requirement->label }}
-                                        <span class="text-slate">&middot; {{ $requirement->submission_mode->label() }}</span>
-                                    </li>
-                                @endforeach
-                            </ul>
-                        </div>
-                    @endif
-
-                    @error('slots')<p class="mt-2 font-body text-[12px] text-crimson-600">{{ $message }}</p>@enderror
-
-                    @if (! $showAwardForm)
-                        <x-ui.button wire:click="startAward" class="mt-3" :disabled="$outstanding->isNotEmpty()">Approve award</x-ui.button>
-                    @else
-                        <div class="mt-3 border-t border-line pt-3">
-                            <div class="flex gap-2">
-                                <x-ui.button variant="secondary" type="button" wire:click="$set('showAwardForm', false)">Cancel</x-ui.button>
-                                <x-ui.button wire:click="confirmAward">Confirm award</x-ui.button>
-                            </div>
-                        </div>
-                    @endif
-                </div>
-            @endif
-
-            @if ($application->applicant->applications->count() > 1)
-                <div class="rounded-card border border-line bg-surface p-5">
-                    <p class="font-body text-[11px] font-600 uppercase tracking-[0.08em] text-mist">Other applications</p>
-                    <ul class="mt-2 space-y-2">
-                        @foreach ($application->applicant->applications->where('id', '!=', $application->id) as $other)
-                            @php $badge = $other->outcomeBadge(); @endphp
-                            <li class="flex items-start justify-between gap-3 font-body text-[13px] text-ink">
-                                <span>
-                                    {{ $other->programOffering->scholarshipProgram->name }}
-                                    <span class="block font-mono text-[12px] text-slate">{{ $other->reference_no }} &middot; {{ $other->status->label() }}</span>
-                                </span>
-                                <span class="shrink-0 border-l-2 border-{{ $badge['color'] }} pl-2 font-body text-[11px] font-600 uppercase tracking-[0.08em] text-{{ $badge['color'] }}">{{ $badge['label'] }}</span>
-                            </li>
-                        @endforeach
-                    </ul>
-                </div>
-            @endif
-
-            <div class="rounded-card border border-line bg-surface p-5">
-                <p class="font-body text-[11px] font-600 uppercase tracking-[0.08em] text-mist">Timeline</p>
-                <ul class="mt-2 space-y-1">
-                    @foreach ($application->statusLogs->sortBy('created_at') as $log)
-                        <li class="font-body text-[12px] text-slate">
-                            <span class="font-mono">{{ $log->created_at->format('M j, g:ia') }}</span> &mdash; {{ $log->to_status->label() }}
-                            @if ($log->changedBy) <span class="text-mist">by {{ $log->changedBy->name }}</span> @endif
-                            @if ($log->reason) <span class="block text-mist">&ldquo;{{ $log->reason }}&rdquo;</span> @endif
-                        </li>
-                    @endforeach
-                </ul>
-            </div>
+            <x-staff.status-timeline :application="$application" />
         </div>
     </div>
 </div>

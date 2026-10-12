@@ -6,7 +6,7 @@
 <x-mail::message>
 # Hi {{ $applicant->first_name }}
 
-Your application for **{{ $program->name }}** (reference **{{ $application->reference_no }}**) needs a document fixed before it can move forward.
+Your application for **{{ $program->name }}** needs a document fixed before it can move forward.
 
 @if ($rejected->isNotEmpty())
 <x-mail::panel>
@@ -20,9 +20,9 @@ Your application for **{{ $program->name }}** (reference **{{ $application->refe
 </x-mail::panel>
 @endif
 
-Log in to your tracking dashboard with your Student ID and reference number to re-upload the document.
+Log in to your OSDW Scholarships account to see what needs fixing.
 
-<x-mail::button :url="route('track.lookup')">
+<x-mail::button :url="route('student.applications.show', $application)">
 Fix my application
 </x-mail::button>
 

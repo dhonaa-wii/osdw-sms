@@ -20,6 +20,7 @@ use App\Models\ScholarshipProgram;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 class DashboardTest extends TestCase
@@ -31,13 +32,12 @@ class DashboardTest extends TestCase
         $provider = Provider::create(['name' => 'DOST-SEI '.Str::random(4), 'funding_source' => FundingSource::NationalGovernment, 'is_active' => true]);
         $scholarshipProgram = ScholarshipProgram::create([
             'name' => 'DOST-SEI Fellowship', 'provider_id' => $provider->id,
-            'category' => ScholarshipCategory::Academic,
         ]);
 
         return ProgramOffering::create(array_merge([
             'scholarship_program_id' => $scholarshipProgram->id, 'academic_term_id' => $term->id, 'campus_id' => $campus->id,
             'opens_at' => now()->subDay(), 'closes_at' => now()->addDays(30), 'total_slots' => 5,
-            'college_scope' => 'all', 'allocation_mode' => 'open',
+            'college_scope' => 'all', 'allocation_mode' => 'open', 'category' => ScholarshipCategory::Academic,
             'amount' => 5000,
         ], $overrides));
     }
@@ -51,9 +51,9 @@ class DashboardTest extends TestCase
         ]);
 
         return $applicant->applications()->create(array_merge([
-            'reference_no' => 'SCH-2026-'.Str::random(6), 'access_token' => str_repeat('a', 64),
+            'access_token' => str_repeat('a', 64),
             'program_offering_id' => $offering->id, 'college_id' => $college->id,
-            'year_level' => 2, 'status' => 'accepted', 'submitted_at' => now(),
+            'year_level' => 2, 'status' => 'awarded', 'submitted_at' => now(),
         ], $overrides));
     }
 
@@ -66,7 +66,7 @@ class DashboardTest extends TestCase
         $campus = Campus::create(['name' => 'Aparri']);
         $offering = $this->programOffering($term, $campus);
 
-        $this->application($offering, ['status' => 'accepted']);
+        $this->application($offering, ['status' => 'awarded']);
         $this->application($offering, ['status' => 'screening', 'screened_at' => now()]);
         $this->application($offering, ['status' => 'shortlisted', 'screened_at' => now()]);
 
@@ -105,30 +105,34 @@ class DashboardTest extends TestCase
         ]);
 
         $staff = User::factory()->create(['role' => UserRole::OsdwStaff]);
-        $awardedApplication = $this->application($offering, ['status' => 'accepted']);
+        $awardedApplication = $this->application($offering, ['status' => 'awarded']);
         Award::create([
             'application_id' => $awardedApplication->id, 'applicant_id' => $awardedApplication->applicant_id,
             'program_offering_id' => $offering->id, 'academic_term_id' => $term->id, 'amount' => 5000,
-            'awarded_by' => $staff->id, 'awarded_at' => now(), 'acceptance_status' => 'accepted',
-            'accepted_at' => now(),
-            'status' => 'reserved',
+            'awarded_by' => $staff->id, 'awarded_at' => now(),
         ]);
 
         $this->actingAs($staff)
             ->get('/dashboard')
             ->assertOk()
             ->assertSeeText('DOST-SEI Fellowship')
-            ->assertSeeText('1 / 10');
+            ->assertSeeText('Applications to screen')
+            ->assertSeeText('Documents to verify')
+            ->assertSeeText('1/10')
+            ->assertSeeText('Juan Dela Cruz');
     }
 
-    public function test_admin_dashboard_does_not_show_operational_metrics(): void
+    public function test_admin_dashboard_shows_operational_and_executive_cards(): void
     {
         $admin = User::factory()->create(['role' => UserRole::Admin]);
 
         $this->actingAs($admin)
             ->get('/dashboard')
             ->assertOk()
-            ->assertDontSee('Slot utilization');
+            ->assertSeeText('Slots filled this term')
+            ->assertSeeText('Pending tasks')
+            ->assertSeeText('Budget utilization')
+            ->assertSeeText('Records');
     }
 
     public function test_staff_dashboard_does_not_show_executive_summary(): void
@@ -138,7 +142,8 @@ class DashboardTest extends TestCase
         $this->actingAs($staff)
             ->get('/dashboard')
             ->assertOk()
-            ->assertDontSee('Executive summary');
+            ->assertDontSee('Budget utilization')
+            ->assertDontSee('Slots across terms');
     }
 
     public function test_admin_dashboard_shows_budget_utilization_for_programs_with_a_budget(): void
@@ -153,23 +158,42 @@ class DashboardTest extends TestCase
         $provider->update(['allocated_budget' => 20000]);
 
         $admin = User::factory()->create(['role' => UserRole::Admin]);
-        $application = $this->application($offering, ['status' => 'accepted']);
+        $application = $this->application($offering, ['status' => 'awarded']);
         Award::create([
             'application_id' => $application->id, 'applicant_id' => $application->applicant_id,
             'program_offering_id' => $offering->id, 'academic_term_id' => $term->id, 'amount' => 5000,
-            'awarded_by' => $admin->id, 'awarded_at' => now(), 'acceptance_status' => 'accepted',
-            'accepted_at' => now(),
-            'status' => 'reserved',
+            'awarded_by' => $admin->id, 'awarded_at' => now(),
         ]);
 
         $this->actingAs($admin)
             ->get('/dashboard')
             ->assertOk()
-            ->assertSeeText('Executive summary')
             ->assertSeeText('Budget utilization')
             ->assertSeeText($provider->name)
             ->assertSeeText('5,000.00')
             ->assertSeeText('20,000.00');
+    }
+
+    public function test_search_finds_programs_by_name_or_provider_and_providers_by_name(): void
+    {
+        $term = AcademicTerm::create([
+            'school_year' => '2026-2027', 'semester' => Semester::First,
+            'start_date' => '2026-08-03', 'end_date' => '2026-12-18', 'is_current' => true,
+        ]);
+        $offering = $this->programOffering($term, Campus::create(['name' => 'Aparri']));
+        $provider = $offering->scholarshipProgram->provider;
+
+        $this->actingAs(User::factory()->create(['role' => UserRole::OsdwStaff]));
+
+        Livewire::test('staff::dashboard')
+            ->set('search', 'Fellowship')
+            ->assertSeeText('DOST-SEI Fellowship')
+            ->assertSee(route('staff.applications.workspace', $offering))
+            ->set('search', 'DOST-SEI')
+            ->assertSeeText('DOST-SEI Fellowship')
+            ->assertSeeText($provider->name)
+            ->set('search', 'Nothing like this')
+            ->assertSeeText('No programs or providers match');
     }
 
     public function test_admin_dashboard_shows_term_trends(): void
@@ -186,7 +210,7 @@ class DashboardTest extends TestCase
         $this->actingAs($admin)
             ->get('/dashboard')
             ->assertOk()
-            ->assertSeeText('Trends across terms')
+            ->assertSeeText('Slots across terms')
             ->assertSeeText('2026-2027');
     }
 }

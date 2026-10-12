@@ -3,9 +3,9 @@
 
 @php
     $variants = [
-        'primary' => 'bg-forest-600 text-white hover:bg-forest-700 focus-visible:ring-forest-600',
-        'secondary' => 'border border-line bg-surface text-ink hover:bg-paper focus-visible:ring-forest-600',
-        'ghost' => 'text-forest-700 hover:bg-forest-50 focus-visible:ring-forest-600',
+        'primary' => 'bg-navy-600 text-white hover:bg-navy-700 focus-visible:ring-navy-600',
+        'secondary' => 'border border-line bg-surface text-ink hover:bg-paper focus-visible:ring-navy-600',
+        'ghost' => 'text-navy-700 hover:bg-navy-50 focus-visible:ring-navy-600',
         'danger' => 'bg-crimson-600 text-white hover:bg-crimson-700 focus-visible:ring-crimson-600',
     ];
     $classes = $variants[$variant] ?? $variants['primary'];

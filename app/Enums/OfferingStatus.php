@@ -17,7 +17,7 @@ enum OfferingStatus: string
     {
         return match ($this) {
             self::Upcoming => 'border-mist text-mist',
-            self::Open => 'border-forest-600 text-forest-700',
+            self::Open => 'border-navy-600 text-navy-700',
             self::Closed => 'border-slate text-slate',
         };
     }

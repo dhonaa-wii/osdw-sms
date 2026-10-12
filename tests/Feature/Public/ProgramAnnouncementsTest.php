@@ -30,13 +30,12 @@ class ProgramAnnouncementsTest extends TestCase
         $provider = Provider::create(['name' => 'DOST-SEI '.Str::random(4), 'funding_source' => FundingSource::NationalGovernment]);
         $scholarshipProgram = ScholarshipProgram::create([
             'name' => 'DOST-SEI Fellowship', 'provider_id' => $provider->id,
-            'category' => ScholarshipCategory::Academic,
         ]);
 
         return ProgramOffering::create([
             'scholarship_program_id' => $scholarshipProgram->id, 'academic_term_id' => $term->id, 'campus_id' => $campus->id,
             'opens_at' => now()->subDay(), 'closes_at' => now()->addMonth(), 'total_slots' => 5,
-            'college_scope' => 'all', 'allocation_mode' => 'open',
+            'college_scope' => 'all', 'allocation_mode' => 'open', 'category' => ScholarshipCategory::Academic,
             'amount' => 5000,
         ]);
     }

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\ApplicationStatus;
+use App\Services\StudentNotificationService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -17,6 +18,15 @@ class ApplicationStatusLog extends Model
         'changed_by',
         'reason',
     ];
+
+    /**
+     * Every status change goes through a log row, so this is the one place
+     * the student hears about it.
+     */
+    protected static function booted(): void
+    {
+        static::created(fn (self $log) => app(StudentNotificationService::class)->statusChanged($log));
+    }
 
     protected function casts(): array
     {

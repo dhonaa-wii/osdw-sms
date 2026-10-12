@@ -2,7 +2,9 @@
 
 namespace App\Services;
 
+use App\Enums\EligibilityField;
 use App\Enums\EligibilityOperator;
+use App\Enums\ScholarshipCategory;
 use App\Models\Base\EligibilityRule;
 use App\Models\ProgramOffering;
 use Illuminate\Support\Collection;
@@ -27,6 +29,57 @@ class EligibilityService
             'rule' => $rule,
             'passed' => $this->passes($rule, $attributes, $strict),
         ]);
+    }
+
+    /**
+     * An academic offering requires a minimum GWA, and an application that
+     * misses it cannot be submitted. Returns the rule the GWA fails, if any.
+     */
+    public function unmetGwaRule(ProgramOffering $offering, mixed $gwa): ?EligibilityRule
+    {
+        if ($offering->category !== ScholarshipCategory::Academic) {
+            return null;
+        }
+
+        return $offering->eligibilityRules
+            ->filter(fn (EligibilityRule $rule) => $rule->field === EligibilityField::Gwa)
+            ->first(fn (EligibilityRule $rule) => ! $this->passes($rule, ['gwa' => $gwa], strict: true));
+    }
+
+    /**
+     * An offering's family income cap blocks an application above it. The cap
+     * is never shown to students, so its message names no amount.
+     */
+    public function unmetIncomeRule(ProgramOffering $offering, mixed $income): ?EligibilityRule
+    {
+        return $offering->eligibilityRules
+            ->filter(fn (EligibilityRule $rule) => $rule->field === EligibilityField::Income)
+            ->first(fn (EligibilityRule $rule) => ! $this->passes($rule, ['income' => $income], strict: true));
+    }
+
+    /** The offering's family monthly income cap, or null when it has none. */
+    public function incomeCap(ProgramOffering $offering): ?string
+    {
+        return $offering->eligibilityRules()->where('field', EligibilityField::Income->value)->value('value');
+    }
+
+    /** Sets or clears the offering's family monthly income cap — blank means no cap. */
+    public function saveIncomeCap(ProgramOffering $offering, ?string $cap): void
+    {
+        if ($cap === null || $cap === '') {
+            $offering->eligibilityRules()->where('field', EligibilityField::Income->value)->delete();
+
+            return;
+        }
+
+        $offering->eligibilityRules()->updateOrCreate(
+            ['field' => EligibilityField::Income->value],
+            [
+                'operator' => EligibilityOperator::Lte->value,
+                'value' => $cap,
+                'message' => "Your family's monthly income is above this scholarship's limit, so you can't apply.",
+            ]
+        );
     }
 
     protected function passes(EligibilityRule $rule, array $attributes, bool $strict): bool

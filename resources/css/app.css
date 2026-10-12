@@ -11,19 +11,22 @@
 
 @theme {
     /* Core */
-    --color-ink: #17211c; /* primary text, green-tinted near-black */
-    --color-slate: #5a625c; /* secondary text */
-    --color-mist: #8e958f; /* tertiary text, placeholders */
-    --color-paper: #f4f5f2; /* page background */
+    --color-ink: #171e29; /* primary text, blue-tinted near-black */
+    --color-slate: #5a6472; /* secondary text */
+    --color-mist: #8e96a3; /* tertiary text, placeholders */
+    --color-paper: #f4f5f7; /* page background */
     --color-surface: #ffffff; /* cards, panels */
-    --color-line: #dfe2dc; /* hairlines, dividers */
+    --color-line: #dfe2e8; /* hairlines, dividers */
 
     /* Institutional */
-    --color-forest-50: #ecf3ee;
-    --color-forest-100: #cfe2d6;
-    --color-forest-600: #1e6b41; /* primary actions */
-    --color-forest-700: #17532f;
-    --color-forest-900: #0d3320;
+    --color-navy-50: #eaf0f7;
+    --color-navy-100: #cddce9;
+    --color-navy-600: #1d4e89; /* primary actions */
+    --color-navy-700: #163b68;
+    --color-navy-900: #0c2140;
+
+    /* Decorative — landing hero wave lines only */
+    --color-wave: #3b82f6;
 
     /* Award — used only for awarded/active states */
     --color-gold-50: #fbf3de;
@@ -33,6 +36,7 @@
     /* Status */
     --color-amber-600: #b45309; /* pending, warning, deadline near */
     --color-crimson-600: #b42318; /* ineligible, denied, forfeited */
+    --color-crimson-700: #912018;
     --color-azure-600: #175cd3; /* informational, in review */
 
     /* Type */
@@ -43,6 +47,10 @@
     /* Radius */
     --radius-control: 8px;
     --radius-card: 12px;
+}
+
+[x-cloak] {
+    display: none !important;
 }
 
 @layer utilities {
@@ -91,8 +99,8 @@
     [data-timeline-step="3"] { animation-delay: 1s; }
 
     @keyframes timeline-pulse {
-        0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-forest-600) 35%, transparent); }
-        50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-forest-600) 0%, transparent); }
+        0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-navy-600) 35%, transparent); }
+        50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-navy-600) 0%, transparent); }
     }
 
     [data-timeline-pulse] {

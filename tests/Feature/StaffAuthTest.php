@@ -16,7 +16,7 @@ class StaffAuthTest extends TestCase
     {
         $this->get('/login')
             ->assertOk()
-            ->assertSee('Staff sign in');
+            ->assertSee('Log in');
     }
 
     public function test_guest_is_redirected_away_from_dashboard(): void
@@ -33,7 +33,7 @@ class StaffAuthTest extends TestCase
             'role' => UserRole::OsdwStaff,
         ]);
 
-        Livewire::test('staff::login')
+        Livewire::test('auth::login')
             ->set('email', 'staff@osdw.test')
             ->set('password', 'password')
             ->call('login')
@@ -50,7 +50,7 @@ class StaffAuthTest extends TestCase
             'role' => UserRole::OsdwStaff,
         ]);
 
-        Livewire::test('staff::login')
+        Livewire::test('auth::login')
             ->set('email', 'staff@osdw.test')
             ->set('password', 'wrong-password')
             ->call('login')
@@ -68,7 +68,7 @@ class StaffAuthTest extends TestCase
             'is_active' => false,
         ]);
 
-        Livewire::test('staff::login')
+        Livewire::test('auth::login')
             ->set('email', 'inactive@osdw.test')
             ->set('password', 'password')
             ->call('login')
@@ -84,7 +84,7 @@ class StaffAuthTest extends TestCase
         $this->actingAs($admin)
             ->get('/dashboard')
             ->assertOk()
-            ->assertSee('Applicants')
+            ->assertSee('Applications')
             ->assertSee('Audit Log')
             ->assertSee('Scholarship Programs')
             ->assertSee('Providers')
@@ -100,7 +100,7 @@ class StaffAuthTest extends TestCase
         $this->actingAs($staff)
             ->get('/dashboard')
             ->assertOk()
-            ->assertSee('Applicants')
+            ->assertSee('Applications')
             ->assertDontSee('Audit Log')
             ->assertDontSee('Scholarship Programs')
             ->assertDontSee('Providers');

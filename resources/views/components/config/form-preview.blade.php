@@ -1,10 +1,10 @@
-@props(['fields', 'show' => false, 'isAcademic' => false, 'requiresIncome' => false])
+@props(['fields', 'show' => false, 'isAcademic' => false])
 
-<x-ui.modal :show="$show" title="Registration form &mdash; student view" size="xl">
-    <div class="space-y-8">
+<x-ui.dialog show="$wire.showPreview" close="$wire.showPreview = false" title="Application form — student view" size="xl">
+    <div class="space-y-5">
         <div>
-            <p class="font-body text-[11px] font-600 uppercase tracking-[0.08em] text-mist">Your identity</p>
-            <div class="mt-3 grid grid-cols-1 gap-5 sm:grid-cols-2">
+            <h3 class="font-body text-[12px] font-600 text-slate">Your identity</h3>
+            <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <x-ui.input name="preview_student_id" label="Student ID" disabled required />
                 <x-ui.select name="preview_sex" label="Sex" disabled required>
                     @foreach (\App\Enums\Sex::cases() as $option)
@@ -22,9 +22,9 @@
             </div>
         </div>
 
-        <div class="border-t border-line pt-6">
-            <p class="font-body text-[11px] font-600 uppercase tracking-[0.08em] text-mist">Academic standing</p>
-            <div class="mt-3 grid grid-cols-1 gap-5 sm:grid-cols-2">
+        <div class="border-t border-line pt-4">
+            <h3 class="font-body text-[12px] font-600 text-slate">Academic standing</h3>
+            <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <x-ui.select name="preview_college" label="College" disabled required>
                     <option>Select your college</option>
                 </x-ui.select>
@@ -37,19 +37,17 @@
                 @if ($isAcademic)
                     <x-ui.input name="preview_gwa" label="GWA" type="number" disabled required hint="Enter your GWA as a percentage, e.g. 90." />
                 @endif
-                @if ($requiresIncome)
-                    <x-ui.input name="preview_income" label="Monthly household income" type="number" disabled required hint="Enter your household's total monthly income in pesos." />
-                @endif
+                <x-ui.input name="preview_income" label="Family monthly income" type="number" disabled required hint="Your family's total monthly income in pesos." />
             </div>
         </div>
 
-        <div class="border-t border-line pt-6">
-            <p class="font-body text-[11px] font-600 uppercase tracking-[0.08em] text-mist">Program requirements</p>
+        <div class="border-t border-line pt-4">
+            <h3 class="font-body text-[12px] font-600 text-slate">Program requirements</h3>
 
             @if (empty($fields))
                 <p class="mt-3 font-body text-[14px] text-slate">No extra requirements.</p>
             @else
-                <div class="mt-3 space-y-5">
+                <div class="mt-2 space-y-3">
                     @foreach ($fields as $field)
                         @php
                             $previewType = \App\Enums\FieldType::from($field['field_type']);
@@ -69,10 +67,10 @@
                             <div class="mt-1">
                                 @switch($previewType)
                                     @case(\App\Enums\FieldType::Textarea)
-                                        <textarea rows="3" disabled class="block w-full rounded-control border border-line bg-paper px-3 py-2 text-[14px] text-mist"></textarea>
+                                        <textarea rows="3" disabled class="block w-full rounded-control border border-line bg-paper px-3 py-1.5 text-[14px] text-mist"></textarea>
                                         @break
                                     @case(\App\Enums\FieldType::Select)
-                                        <select disabled class="block w-full rounded-control border border-line bg-paper px-3 py-2 text-[14px] text-mist">
+                                        <select disabled class="block w-full rounded-control border border-line bg-paper px-3 py-1.5 text-[14px] text-mist">
                                             <option>Select</option>
                                             @foreach ($previewChoices as $choice)
                                                 <option>{{ $choice }}</option>
@@ -98,11 +96,11 @@
                                     @case(\App\Enums\FieldType::File)
                                     @case(\App\Enums\FieldType::Image)
                                         <div class="rounded-control border border-dashed border-line bg-paper px-3 py-4 text-center font-body text-[13px] text-mist">
-                                            {{ strtoupper($field['accepted_formats'] ?: 'FILE') }} &middot; max {{ $field['max_size_mb'] ?: '&mdash;' }}MB
+                                            {{ strtoupper($field['accepted_formats'] ?: 'FILE') }} &middot; max {{ $field['max_size_mb'] ?: '—' }}MB
                                         </div>
                                         @break
                                     @default
-                                        <input type="{{ $previewType->value }}" disabled class="block w-full rounded-control border border-line bg-paper px-3 py-2 text-[14px] text-mist">
+                                        <input type="{{ $previewType->value }}" disabled class="block w-full rounded-control border border-line bg-paper px-3 py-1.5 text-[14px] text-mist">
                                 @endswitch
                             </div>
                         </div>
@@ -112,7 +110,7 @@
         </div>
     </div>
 
-    <div class="mt-6 flex justify-end border-t border-line pt-4">
-        <x-ui.button type="button" variant="secondary" wire:click="$set('showPreview', false)">Close preview</x-ui.button>
+    <div class="mt-5 flex justify-end border-t border-line pt-4">
+        <x-ui.button type="button" variant="secondary" x-on:click="$wire.showPreview = false">Close preview</x-ui.button>
     </div>
-</x-ui.modal>
+</x-ui.dialog>

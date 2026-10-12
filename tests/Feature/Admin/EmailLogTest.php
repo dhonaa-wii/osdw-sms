@@ -29,8 +29,8 @@ class EmailLogTest extends TestCase
     {
         $admin = User::factory()->create(['role' => UserRole::Admin]);
         EmailLog::create([
-            'recipient' => 'juan@example.com', 'subject' => 'Your reference number',
-            'type' => 'reference', 'status' => 'sent', 'sent_at' => now(),
+            'recipient' => 'juan@example.com', 'subject' => 'Screening result',
+            'type' => 'screening_result', 'status' => 'sent', 'sent_at' => now(),
         ]);
 
         Livewire::actingAs($admin)

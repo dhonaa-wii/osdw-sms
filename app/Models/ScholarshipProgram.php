@@ -2,24 +2,29 @@
 
 namespace App\Models;
 
-use App\Enums\ScholarshipCategory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
- * A scholarship a provider offers. Holds the configuration template that
- * every new offering starts from — form fields, eligibility and retention
- * rules. Anything that can change from term to term (college scope, the
- * eligible colleges, allocation mode, slots, dates, amount) belongs to the
- * offering instead.
+ * A scholarship a provider offers — its identity (name, provider,
+ * description). Every offering configures its own form fields, eligibility
+ * rules, requirements, and everything else that can change from term to
+ * term (category, college scope, eligible colleges, allocation mode, slots,
+ * dates, amount); none of it lives on the program.
+ *
+ * Deleting one soft-deletes it together with its offerings
+ * (DeletionService); it can be restored from Settings → Deleted items until
+ * it is purged.
  */
 class ScholarshipProgram extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = [
         'name',
         'provider_id',
-        'category',
         'description',
         'is_active',
     ];
@@ -27,7 +32,6 @@ class ScholarshipProgram extends Model
     protected function casts(): array
     {
         return [
-            'category' => ScholarshipCategory::class,
             'is_active' => 'boolean',
         ];
     }
@@ -40,20 +44,5 @@ class ScholarshipProgram extends Model
     public function offerings(): HasMany
     {
         return $this->hasMany(ProgramOffering::class);
-    }
-
-    public function formFields(): HasMany
-    {
-        return $this->hasMany(ProgramFormField::class);
-    }
-
-    public function eligibilityRules(): HasMany
-    {
-        return $this->hasMany(ProgramEligibilityRule::class);
-    }
-
-    public function retentionRules(): HasMany
-    {
-        return $this->hasMany(ProgramRetentionRule::class);
     }
 }

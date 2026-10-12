@@ -17,12 +17,12 @@
 <body class="min-h-screen bg-paper font-body text-ink antialiased">
     <header class="border-b border-line bg-surface">
         <div class="mx-auto flex max-w-[720px] items-center px-4 py-4">
-            <a href="{{ route('home') }}" class="font-display text-[16px] font-600 text-forest-700">OSDW Scholarship System</a>
+            <a href="{{ route('home') }}" class="font-display text-[16px] font-600 text-navy-700">OSDW Scholarship System</a>
         </div>
     </header>
 
     <main class="mx-auto flex min-h-[70vh] max-w-[560px] flex-col items-center justify-center px-4 py-12 text-center">
-        <span class="flex size-14 items-center justify-center rounded-full bg-forest-50 text-forest-700">
+        <span class="flex size-14 items-center justify-center rounded-full bg-navy-50 text-navy-700">
             <svg class="size-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{!! $icon !!}</svg>
         </span>
 

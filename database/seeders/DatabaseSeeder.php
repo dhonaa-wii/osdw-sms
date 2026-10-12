@@ -27,6 +27,8 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
+        $this->call(BrandingSeeder::class);
+
         User::factory()->create([
             'name' => 'System Administrator',
             'email' => 'admin@osdw.test',
@@ -37,6 +39,8 @@ class DatabaseSeeder extends Seeder
             'name' => 'OSDW Staff',
             'email' => 'staff@osdw.test',
             'role' => UserRole::OsdwStaff,
+            // Demo account: skips the first-login password change.
+            'password_changed_at' => now(),
         ]);
 
         $campus = Campus::create(['name' => 'Aparri']);
@@ -81,43 +85,51 @@ class DatabaseSeeder extends Seeder
             'DOST-SEI-UAF' => [
                 'name' => 'DOST-SEI Undergraduate Academic Fellowship',
                 'provider' => 'DOST-SEI',
-                'category' => ScholarshipCategory::Academic,
                 'description' => 'Full academic scholarship for priority STEM courses.',
             ],
             'ACEF-GIAHEP' => [
                 'name' => 'ACEF-GIAHEP Grant-in-Aid',
                 'provider' => 'ACEF-GIAHEP',
-                'category' => ScholarshipCategory::Academic,
                 'description' => 'Partial grant for incoming freshmen with high entrance exam scores.',
             ],
             'CSUA-ALUMNI' => [
                 'name' => 'CSUA Alumni Association Scholarship',
                 'provider' => 'CSUA Alumni Association',
-                'category' => ScholarshipCategory::Academic,
                 'description' => 'Alumni-funded grant prioritizing continuing scholars with strong academic standing.',
             ],
             'OHF-CARES' => [
                 'name' => 'Open Heart Foundation CARES Grant',
                 'provider' => 'Open Heart Foundation',
-                'category' => ScholarshipCategory::NonAcademic,
                 'description' => 'Need-based assistance for students with documented financial hardship.',
                 'is_active' => false,
             ],
         ])->map(fn ($attributes) => ScholarshipProgram::create([
             'name' => $attributes['name'],
             'provider_id' => $providersByName[$attributes['provider']]->id,
-            'category' => $attributes['category'],
             'description' => $attributes['description'],
             'is_active' => $attributes['is_active'] ?? true,
         ]));
 
         $scholarshipProgramsByKey = $scholarshipPrograms;
 
-        // The program template. Every offering opened below starts from a copy
-        // of this, and can then be edited for its own term.
         $dostProgram = $scholarshipProgramsByKey['DOST-SEI-UAF'];
+        $csuaProgram = $scholarshipProgramsByKey['CSUA-ALUMNI'];
 
-        $dostProgram->formFields()->createMany([
+        $offeringService = app(OfferingService::class);
+
+        $dostOffering = $offeringService->openOffering($dostProgram, [
+            'academic_term_id' => $currentTerm->id,
+            'name' => 'Batch 1',
+            'category' => ScholarshipCategory::Academic,
+            'campus_id' => $campus->id,
+            'opens_at' => '2026-08-10 08:00:00',
+            'closes_at' => '2026-09-10 17:00:00',
+            'total_slots' => 20,
+            'amount' => 15000,
+        ]);
+
+        // Every offering configures its own requirements from scratch.
+        $dostOffering->formFields()->createMany([
             [
                 'field_type' => 'file',
                 'label' => 'Certificate of Registration',
@@ -136,35 +148,22 @@ class DatabaseSeeder extends Seeder
             ],
         ]);
 
-        $dostProgram->eligibilityRules()->create([
+        $dostOffering->eligibilityRules()->create([
             'field' => 'gwa',
             'operator' => 'gte',
             'value' => '80.00',
             'message' => 'GWA must be 80.00 or better.',
         ]);
 
-        $csuaProgram = $scholarshipProgramsByKey['CSUA-ALUMNI'];
-
-        $offeringService = app(OfferingService::class);
-
-        $offeringService->openOffering($dostProgram, [
-            'academic_term_id' => $currentTerm->id,
-            'name' => 'Batch 1',
-            'campus_id' => $campus->id,
-            'opens_at' => '2026-08-10 08:00:00',
-            'closes_at' => '2026-09-10 17:00:00',
-            'total_slots' => 20,
-            'amount' => 15000,
-        ]);
-
         $csuaOffering = $offeringService->openOffering($csuaProgram, [
             'academic_term_id' => $currentTerm->id,
             'name' => 'Batch 1',
+            'category' => ScholarshipCategory::Academic,
             'campus_id' => $campus->id,
             'opens_at' => '2026-08-15 08:00:00',
             'closes_at' => '2026-09-15 17:00:00',
             'total_slots' => 15,
-            'discount_rate' => 50,
+            'amount' => 10000,
             'college_scope' => CollegeScope::Restricted,
             'allocation_mode' => AllocationMode::Quota,
         ]);

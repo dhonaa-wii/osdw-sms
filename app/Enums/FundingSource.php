@@ -24,4 +24,13 @@ enum FundingSource: string
             self::NonAcademic => 'Non-academic',
         };
     }
+
+    /**
+     * National scholarships (government or not) are one per student: a
+     * grantee of one can't apply to or be awarded another.
+     */
+    public function isNational(): bool
+    {
+        return in_array($this, [self::NationalGovernment, self::NationalNonGovernment], true);
+    }
 }

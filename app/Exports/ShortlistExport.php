@@ -24,12 +24,11 @@ class ShortlistExport implements FromCollection, WithHeadings
                 $application->college->code,
                 $application->submitted_at?->format('Y-m-d'),
                 $application->status->label(),
-                $application->reference_no,
             ]);
     }
 
     public function headings(): array
     {
-        return ['Last Name', 'First Name', 'College', 'Submitted', 'Status', 'Reference No.'];
+        return ['Last Name', 'First Name', 'College', 'Submitted', 'Status'];
     }
 }

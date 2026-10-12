@@ -11,9 +11,7 @@ class ProviderService
 {
     /**
      * Every scholarship program this provider holds, with the amount
-     * actually provided (active or completed awards — not reserved,
-     * declined, or forfeited) broken down per academic term and summed
-     * all-time.
+     * actually provided, broken down per academic term and summed all-time.
      *
      * @return array{rows: Collection<int, array{program: ScholarshipProgram, terms: Collection, scholars: int, total: float}>, grandTotal: float, totalScholars: int}
      */
@@ -21,8 +19,7 @@ class ProviderService
     {
         $programs = $provider->scholarshipPrograms()->orderBy('name')->get();
 
-        $awardsByProgram = Award::whereIn('status', ['active', 'completed'])
-            ->whereHas('programOffering', fn ($query) => $query->whereIn('scholarship_program_id', $programs->pluck('id')))
+        $awardsByProgram = Award::whereHas('programOffering', fn ($query) => $query->whereIn('scholarship_program_id', $programs->pluck('id')))
             ->with('academicTerm', 'programOffering')
             ->get()
             ->groupBy(fn (Award $award) => $award->programOffering->scholarship_program_id);
@@ -57,24 +54,18 @@ class ProviderService
 
     /**
      * Every provider with an allocated budget, alongside the amount currently
-     * committed (reserved or active awards, excluding declined/forfeited)
-     * across all of that provider's programs and offerings, all terms.
+     * committed across all of that provider's programs and offerings, all terms.
      *
      * @return Collection<int, array{provider: Provider, awarded: float}>
      */
     public function budgetUtilization(): Collection
     {
-        $activeAwards = fn ($query) => $query
-            ->whereIn('status', ['reserved', 'active'])
-            ->whereNotIn('acceptance_status', ['declined', 'forfeited']);
-
         return Provider::whereNotNull('allocated_budget')
             ->get()
             ->map(fn (Provider $provider) => [
                 'provider' => $provider,
-                'awarded' => $activeAwards(
-                    Award::whereHas('programOffering.scholarshipProgram', fn ($q) => $q->where('provider_id', $provider->id))
-                )->sum('amount'),
+                'awarded' => Award::whereHas('programOffering.scholarshipProgram', fn ($q) => $q->where('provider_id', $provider->id))
+                    ->sum('amount'),
             ]);
     }
 }

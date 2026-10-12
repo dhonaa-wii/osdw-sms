@@ -34,7 +34,6 @@ class ApplicationReviewTest extends TestCase
         $provider = Provider::create(['name' => 'DOST-SEI', 'funding_source' => FundingSource::NationalGovernment, 'is_active' => true]);
         $scholarshipProgram = ScholarshipProgram::create([
             'name' => 'DOST-SEI Fellowship', 'provider_id' => $provider->id,
-            'category' => ScholarshipCategory::Academic,
         ]);
         $term = AcademicTerm::create([
             'school_year' => '2026-2027', 'semester' => Semester::First,
@@ -43,8 +42,8 @@ class ApplicationReviewTest extends TestCase
         $campus = Campus::create(['name' => 'Aparri']);
         $offering = ProgramOffering::create([
             'scholarship_program_id' => $scholarshipProgram->id, 'academic_term_id' => $term->id, 'campus_id' => $campus->id,
-            'opens_at' => '2026-08-10 08:00', 'closes_at' => '2026-09-10 17:00', 'total_slots' => 20,
-            'college_scope' => 'all', 'allocation_mode' => 'open',
+            'opens_at' => '2026-08-10 08:00', 'closes_at' => '2026-09-10 17:00', 'total_slots' => 20, 'amount' => 5000,
+            'college_scope' => 'all', 'allocation_mode' => 'open', 'category' => ScholarshipCategory::Academic,
         ]);
         $field = $offering->formFields()->create([
             'field_type' => 'file', 'label' => 'Certificate of Registration',
@@ -61,7 +60,7 @@ class ApplicationReviewTest extends TestCase
             'sex' => 'male', 'email' => 'juan@example.com',
         ]);
         $application = $applicant->applications()->create([
-            'reference_no' => 'SCH-2026-'.Str::random(6), 'access_token' => str_repeat('a', 64),
+            'access_token' => str_repeat('a', 64),
             'program_offering_id' => $offering->id, 'college_id' => $college->id,
             'year_level' => 2, 'status' => $status, 'submitted_at' => now(),
         ]);
@@ -126,7 +125,7 @@ class ApplicationReviewTest extends TestCase
             ->test('staff::applications.review', ['application' => $application])
             ->set('decisionRemarks', 'Meets all criteria.')
             ->call('endorse')
-            ->assertHasErrors(['decisionRemarks']);
+            ->assertDispatched('notice', title: 'Documents not verified');
 
         $this->assertSame('screening', $application->fresh()->status->value);
     }
@@ -143,7 +142,7 @@ class ApplicationReviewTest extends TestCase
             ->call('verifyDocument', $document->id)
             ->set('decisionRemarks', 'Meets all criteria.')
             ->call('endorse')
-            ->assertHasErrors(['decisionRemarks']);
+            ->assertDispatched('notice', title: 'Documents not verified');
 
         $this->assertSame('screening', $application->fresh()->status->value);
     }
@@ -177,19 +176,19 @@ class ApplicationReviewTest extends TestCase
             ->call('togglePhysicalReceived', $document->id);
     }
 
-    public function test_accepting_an_award_activates_it_immediately(): void
+    public function test_awarding_records_the_amount_immediately(): void
     {
         $staff = User::factory()->create(['role' => UserRole::OsdwStaff]);
         $application = $this->applicationForReview(status: 'shortlisted');
         $application->documents->first()->update(['status' => 'verified', 'verified_by' => $staff->id, 'verified_at' => now()]);
 
         $award = app(AwardService::class)->create($application->fresh(), $staff);
-        app(AwardService::class)->accept($award);
 
-        $this->assertSame('active', $award->fresh()->status->value);
+        $this->assertNotNull($award->awarded_at);
+        $this->assertSame('awarded', $application->fresh()->status->value);
     }
 
-    public function test_rejecting_an_application_requires_remarks(): void
+    public function test_staff_can_reject_an_application_without_remarks(): void
     {
         $staff = User::factory()->create(['role' => UserRole::OsdwStaff]);
         $application = $this->applicationForReview();
@@ -197,9 +196,10 @@ class ApplicationReviewTest extends TestCase
         Livewire::actingAs($staff)
             ->test('staff::applications.review', ['application' => $application])
             ->call('reject')
-            ->assertHasErrors(['decisionRemarks']);
+            ->assertHasNoErrors();
 
-        $this->assertSame('screening', $application->fresh()->status->value);
+        $this->assertSame('denied', $application->fresh()->status->value);
+        $this->assertNull($application->statusLogs()->latest('id')->first()->reason);
     }
 
     public function test_staff_can_view_an_uploaded_document(): void
@@ -234,7 +234,7 @@ class ApplicationReviewTest extends TestCase
             ->get(route('staff.applications.workspace', $application->programOffering))
             ->assertOk()
             ->assertSee('0 / 20')
-            ->assertSee($application->reference_no);
+            ->assertSee($application->applicant->student_id);
     }
 
     /**
@@ -245,7 +245,6 @@ class ApplicationReviewTest extends TestCase
         $provider = Provider::create(['name' => 'DOST-SEI', 'funding_source' => FundingSource::NationalGovernment, 'is_active' => true]);
         $scholarshipProgram = ScholarshipProgram::create([
             'name' => 'DOST-SEI Fellowship', 'provider_id' => $provider->id,
-            'category' => ScholarshipCategory::Academic,
         ]);
         $term = AcademicTerm::create([
             'school_year' => '2026-2027', 'semester' => Semester::First,
@@ -254,8 +253,8 @@ class ApplicationReviewTest extends TestCase
         $campus = Campus::create(['name' => 'Aparri']);
         $offering = ProgramOffering::create([
             'scholarship_program_id' => $scholarshipProgram->id, 'academic_term_id' => $term->id, 'campus_id' => $campus->id,
-            'opens_at' => '2026-08-10 08:00', 'closes_at' => '2026-09-10 17:00', 'total_slots' => 20,
-            'college_scope' => 'all', 'allocation_mode' => 'open',
+            'opens_at' => '2026-08-10 08:00', 'closes_at' => '2026-09-10 17:00', 'total_slots' => 20, 'amount' => 5000,
+            'college_scope' => 'all', 'allocation_mode' => 'open', 'category' => ScholarshipCategory::Academic,
         ]);
         $college = College::create(['code' => 'C'.Str::random(3), 'name' => 'College of ICS']);
         $program = Program::create([
@@ -274,7 +273,7 @@ class ApplicationReviewTest extends TestCase
         ]);
 
         return $applicant->applications()->create([
-            'reference_no' => 'SCH-2026-'.Str::random(6), 'access_token' => str_repeat('a', 64),
+            'access_token' => str_repeat('a', 64),
             'program_offering_id' => $offering->id, 'college_id' => $college->id,
             'year_level' => 2, 'status' => $status, 'submitted_at' => now(),
         ]);
@@ -310,7 +309,7 @@ class ApplicationReviewTest extends TestCase
         $this->assertFalse($rows->contains('id', $denied->id));
     }
 
-    public function test_queue_search_filters_by_applicant_name(): void
+    public function test_queue_search_filters_by_student_id(): void
     {
         [$offering, $college, $program] = $this->offeringWithCollegeAndProgram();
         $match = $this->applicationFor($offering, $college, $program, 'screening');
@@ -319,7 +318,7 @@ class ApplicationReviewTest extends TestCase
         $staff = User::factory()->create(['role' => UserRole::OsdwStaff]);
         $rows = Livewire::actingAs($staff)
             ->test('staff::applications.workspace', ['offering' => $offering])
-            ->set('search', $match->reference_no)
+            ->set('search', $match->applicant->student_id)
             ->viewData('queue');
 
         $this->assertTrue($rows->contains('id', $match->id));

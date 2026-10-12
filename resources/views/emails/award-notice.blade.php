@@ -1,26 +1,25 @@
 @php
     $applicant = $award->application->applicant;
     $program = $award->programOffering->scholarshipProgram;
+    $isRenewal = $award->application->isRenewal();
 @endphp
 <x-mail::message>
 # Congratulations, {{ $applicant->first_name }}
 
+@if ($isRenewal)
+Your **{{ $program->name }}** scholarship has been renewed for {{ $award->programOffering->displayName() }}.
+@else
 You've been awarded **{{ $program->name }}**.
+@endif
 
 <x-mail::panel>
-@if ($award->amount)
-Amount: &#8369;{{ number_format($award->amount, 2) }}
-@endif
-@if ($award->discount_rate)
-Tuition discount: {{ $award->discount_rate }}%
-@endif
+Amount: ₱{{ number_format($award->amount, 2) }}
 </x-mail::panel>
 
-Log in to your tracking dashboard with your Student ID and reference number to accept or decline this award.
-Declining frees the slot for another applicant, so please respond as soon as you can.
+Log in to your OSDW Scholarships account to view your award record.
 
-<x-mail::button :url="route('track.lookup')">
-Respond to this award
+<x-mail::button :url="route('student.applications.show', $award->application)">
+View your award
 </x-mail::button>
 
 Thanks,<br>

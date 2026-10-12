@@ -3,7 +3,7 @@
 @php
     $variants = [
         'info' => ['border-azure-600', 'text-azure-600'],
-        'success' => ['border-forest-600', 'text-forest-700'],
+        'success' => ['border-navy-600', 'text-navy-700'],
         'warning' => ['border-amber-600', 'text-amber-600'],
         'danger' => ['border-crimson-600', 'text-crimson-600'],
     ];

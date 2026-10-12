@@ -2,49 +2,64 @@
 
 namespace App\Services;
 
-use App\Models\AcademicTerm;
-use App\Models\Application;
-use App\Models\ApplicationScreening;
 use App\Models\Award;
-use App\Models\ScholarTerm;
+use App\Models\ProgramOffering;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
 class ReportService
 {
+    public function __construct(
+        protected RenewalService $renewalService,
+    ) {}
+
+    /**
+     * The awards behind the Grantees page and the Reports page, filtered the
+     * same way on both: one offering's awards when one is chosen, otherwise
+     * each grantee's latest award per offering group.
+     *
+     * @return Builder<Award>
+     */
+    public function granteeQuery(string $search = '', ?int $programId = null, ?ProgramOffering $offering = null, ?int $collegeId = null): Builder
+    {
+        return Award::query()
+            ->join('applicants', 'applicants.id', '=', 'awards.applicant_id')
+            ->select('awards.*')
+            ->when(
+                $offering,
+                fn ($query) => $query->where('awards.program_offering_id', $offering->id),
+                fn ($query) => $query->whereIn('awards.id', $this->renewalService->latestAwardIdsPerChain()),
+            )
+            ->when($programId, fn ($query) => $query->whereHas('programOffering', fn ($query) => $query->where('scholarship_program_id', $programId)))
+            ->when($collegeId, fn ($query) => $query->whereHas('application', fn ($query) => $query->where('college_id', $collegeId)))
+            // Every word must match the student ID or a name, so "Juan Dela Cruz" finds Juan Dela Cruz.
+            ->when(trim($search) !== '', function ($query) use ($search) {
+                foreach (preg_split('/\s+/', trim($search)) as $word) {
+                    $needle = '%'.$word.'%';
+
+                    $query->where(fn ($query) => $query->where('applicants.student_id', 'like', $needle)
+                        ->orWhere('applicants.last_name', 'like', $needle)
+                        ->orWhere('applicants.first_name', 'like', $needle)
+                        ->orWhere('applicants.middle_name', 'like', $needle));
+                }
+            })
+            ->orderBy('applicants.last_name')
+            ->orderBy('applicants.first_name');
+    }
+
     /**
      * The system's headline output. Column order and source match the
      * schema doc's own mapping (§9) exactly. Built from that mapping since
      * no verified sample of the agency's actual file was available — treat
      * the column order/labels as unverified until checked against a real one.
      *
+     * @param  Collection<int, Award>  $awards  from granteeQuery()
      * @return Collection<int, array<string, mixed>>
      */
-    public function sucLevelling(AcademicTerm $term): Collection
+    public function sucLevelling(Collection $awards): Collection
     {
-        return $this->mapSucLevellingRows(
-            Award::where('status', 'active')->where('academic_term_id', $term->id)
-        );
-    }
-
-    /**
-     * Same headline report, scoped by an arbitrary awarded-date range instead
-     * of a single term — for ad hoc agency requests that don't line up with
-     * term boundaries. Either bound may be omitted for an open-ended range.
-     */
-    public function sucLevellingByDateRange(?string $from, ?string $to): Collection
-    {
-        return $this->mapSucLevellingRows(
-            Award::where('status', 'active')
-                ->when($from, fn ($query) => $query->whereDate('awarded_at', '>=', $from))
-                ->when($to, fn ($query) => $query->whereDate('awarded_at', '<=', $to))
-        );
-    }
-
-    private function mapSucLevellingRows($query): Collection
-    {
-        return $query
-            ->with(['application.applicant', 'application.college', 'programOffering.scholarshipProgram.provider', 'programOffering.campus'])
-            ->get()
+        return $awards
+            ->load(['application.applicant', 'application.college', 'programOffering.scholarshipProgram.provider', 'programOffering.campus'])
             ->sortBy(fn (Award $award) => $award->application->college->name.$award->application->applicant->last_name)
             ->values()
             ->map(function (Award $award, int $index) {
@@ -61,112 +76,11 @@ class ReportService
                     'Year' => $award->application->year_level,
                     'College' => $award->application->college->name,
                     'Name of Scholarship' => $scholarshipProgram->name,
-                    'Type' => $scholarshipProgram->category->label(),
+                    'Type' => $award->programOffering->category->label(),
                     'Funding' => $scholarshipProgram->provider->funding_source->label(),
                     'Campus' => $award->programOffering->campus->name,
                     'Amount' => $award->amount,
                 ];
             });
-    }
-
-    /**
-     * @return Collection<int, array{college: string, scholars: int, amount: float}>
-     */
-    public function scholarsPerCollege(AcademicTerm $term): Collection
-    {
-        return Award::where('status', 'active')
-            ->where('academic_term_id', $term->id)
-            ->with('application.college')
-            ->get()
-            ->groupBy(fn (Award $award) => $award->application->college->name)
-            ->map(fn (Collection $awards, string $college) => [
-                'college' => $college,
-                'scholars' => $awards->count(),
-                'amount' => $awards->sum('amount'),
-            ])
-            ->values();
-    }
-
-    /**
-     * @return Collection<int, array{funding_source: string, scholars: int, amount: float}>
-     */
-    public function scholarsPerFundingSource(AcademicTerm $term): Collection
-    {
-        return Award::where('status', 'active')
-            ->where('academic_term_id', $term->id)
-            ->with('programOffering.scholarshipProgram.provider')
-            ->get()
-            ->groupBy(fn (Award $award) => $award->programOffering->scholarshipProgram->provider->funding_source->label())
-            ->map(fn (Collection $awards, string $fundingSource) => [
-                'funding_source' => $fundingSource,
-                'scholars' => $awards->count(),
-                'amount' => $awards->sum('amount'),
-            ])
-            ->values();
-    }
-
-    /**
-     * @return array{received: int, eligible: int, shortlisted: int, awarded: int, accepted: int}
-     */
-    public function applicationFunnel(AcademicTerm $term): array
-    {
-        $applications = Application::whereHas(
-            'programOffering',
-            fn ($query) => $query->where('academic_term_id', $term->id)
-        );
-
-        return [
-            'received' => (clone $applications)->count(),
-            'eligible' => (clone $applications)->whereNotIn('status', ['draft'])->count(),
-            'shortlisted' => (clone $applications)->whereIn('status', ['shortlisted', 'approved', 'accepted', 'waitlisted', 'denied'])->count(),
-            'awarded' => (clone $applications)->whereHas('award')->count(),
-            'accepted' => (clone $applications)->whereHas('award', fn ($q) => $q->where('acceptance_status', 'accepted'))->count(),
-        ];
-    }
-
-    /**
-     * @return array{continuing: int, terminated: int}
-     */
-    public function retentionReport(AcademicTerm $term): array
-    {
-        $terms = ScholarTerm::where('academic_term_id', $term->id)->get();
-
-        return [
-            'continuing' => $terms->whereIn('status', ['active', 'probation'])->count(),
-            'terminated' => $terms->where('status', 'terminated')->count(),
-        ];
-    }
-
-    /**
-     * @return Collection<int, array{applicant: string, student_id: string, awards: int}>
-     */
-    public function multipleAwardReport(AcademicTerm $term): Collection
-    {
-        return Award::where('status', 'active')
-            ->where('academic_term_id', $term->id)
-            ->with('applicant')
-            ->get()
-            ->groupBy('applicant_id')
-            ->filter(fn (Collection $awards) => $awards->count() > 1)
-            ->map(fn (Collection $awards) => [
-                'applicant' => $awards->first()->applicant->last_name.', '.$awards->first()->applicant->first_name,
-                'student_id' => $awards->first()->applicant->student_id,
-                'awards' => $awards->count(),
-            ])
-            ->values();
-    }
-
-    /**
-     * @return Collection<int, array{reason: string, count: int}>
-     */
-    public function disqualificationReport(AcademicTerm $term): Collection
-    {
-        return ApplicationScreening::where('passed', false)
-            ->whereHas('application.programOffering', fn ($query) => $query->where('academic_term_id', $term->id))
-            ->get()
-            ->groupBy('message')
-            ->map(fn (Collection $rows, string $message) => ['reason' => $message, 'count' => $rows->count()])
-            ->sortByDesc('count')
-            ->values();
     }
 }

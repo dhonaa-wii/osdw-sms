@@ -35,9 +35,4 @@ class AcademicTerm extends Model
     {
         return $this->hasMany(Award::class);
     }
-
-    public function scholarTerms(): HasMany
-    {
-        return $this->hasMany(ScholarTerm::class);
-    }
 }

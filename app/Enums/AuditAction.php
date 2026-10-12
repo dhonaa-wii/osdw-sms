@@ -21,7 +21,7 @@ enum AuditAction: string
             self::Deleted => 'border-crimson-600 text-crimson-600',
             self::Overridden => 'border-amber-600 text-amber-600',
             self::Updated => 'border-azure-600 text-azure-600',
-            self::Created, self::Approved => 'border-forest-600 text-forest-700',
+            self::Created, self::Approved => 'border-navy-600 text-navy-700',
         };
     }
 }

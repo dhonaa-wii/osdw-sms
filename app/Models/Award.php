@@ -3,11 +3,8 @@
 namespace App\Models;
 
 use App\Concerns\Auditable;
-use App\Enums\AcceptanceStatus;
-use App\Enums\AwardStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Award extends Model
 {
@@ -19,27 +16,27 @@ class Award extends Model
         'program_offering_id',
         'academic_term_id',
         'amount',
-        'discount_rate',
         'awarded_by',
         'awarded_at',
+        'disbursed_at',
+        'disbursed_by',
         'is_override',
         'override_reason',
-        'acceptance_status',
-        'accepted_at',
-        'status',
     ];
 
     protected function casts(): array
     {
         return [
             'amount' => 'decimal:2',
-            'discount_rate' => 'decimal:2',
             'awarded_at' => 'datetime',
+            'disbursed_at' => 'datetime',
             'is_override' => 'boolean',
-            'acceptance_status' => AcceptanceStatus::class,
-            'accepted_at' => 'datetime',
-            'status' => AwardStatus::class,
         ];
+    }
+
+    public function isDisbursed(): bool
+    {
+        return $this->disbursed_at !== null;
     }
 
     public function application(): BelongsTo
@@ -67,8 +64,8 @@ class Award extends Model
         return $this->belongsTo(User::class, 'awarded_by');
     }
 
-    public function scholarTerms(): HasMany
+    public function disbursedBy(): BelongsTo
     {
-        return $this->hasMany(ScholarTerm::class);
+        return $this->belongsTo(User::class, 'disbursed_by');
     }
 }

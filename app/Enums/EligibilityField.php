@@ -13,6 +13,7 @@ enum EligibilityField: string
     {
         return match ($this) {
             self::Gwa => 'GWA',
+            self::Income => 'Family monthly income',
             default => str($this->value)->replace('_', ' ')->title()->toString(),
         };
     }

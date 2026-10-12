@@ -4,9 +4,9 @@ namespace App\Enums;
 
 enum EmailType: string
 {
-    case Reference = 'reference';
     case ScreeningResult = 'screening_result';
     case AwardNotice = 'award_notice';
+    case RenewalNotice = 'renewal_notice';
     case Reminder = 'reminder';
 
     public function label(): string

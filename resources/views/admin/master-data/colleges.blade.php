@@ -23,8 +23,6 @@ new #[Layout('layouts::staff', array('title' => 'Colleges'))] class extends Comp
 
     public string $name = '';
 
-    public ?string $successMessage = null;
-
     public function sort(string $column): void
     {
         if ($this->sortBy === $column) {
@@ -59,7 +57,7 @@ new #[Layout('layouts::staff', array('title' => 'Colleges'))] class extends Comp
 
         College::updateOrCreate(['id' => $this->editingId], $validated);
 
-        $this->successMessage = $this->editingId ? 'College updated.' : 'College added.';
+        $this->dispatch('notice', title: $this->editingId ? 'College updated' : 'College added');
         $this->showModal = false;
         $this->resetPage();
     }
@@ -103,10 +101,6 @@ new #[Layout('layouts::staff', array('title' => 'Colleges'))] class extends Comp
         <x-ui.button wire:click="create">Add college</x-ui.button>
     </div>
 
-    @if ($successMessage)
-        <x-ui.alert type="success" class="mt-6">{{ $successMessage }}</x-ui.alert>
-    @endif
-
     <div class="mt-6 max-w-sm">
         <x-ui.input name="search" wire:model.live.debounce.300ms="search" placeholder="Search by code or name" />
     </div>
@@ -139,7 +133,7 @@ new #[Layout('layouts::staff', array('title' => 'Colleges'))] class extends Comp
                         <td data-label="Name" class="text-[14px] text-ink">{{ $college->name }}</td>
                         <td data-label="Status"><x-ui.active-stamp :active="$college->is_active" /></td>
                         <td data-label="Actions" class="space-x-3 text-[14px]">
-                            <button type="button" wire:click="edit({{ $college->id }})" class="text-forest-700 hover:underline">Edit</button>
+                            <button type="button" wire:click="edit({{ $college->id }})" class="text-navy-700 hover:underline">Edit</button>
                             <button type="button" wire:click="toggleActive({{ $college->id }})" class="text-slate hover:underline">
                                 {{ $college->is_active ? 'Deactivate' : 'Activate' }}
                             </button>

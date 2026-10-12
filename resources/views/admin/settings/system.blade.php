@@ -10,8 +10,6 @@ new #[Layout('layouts::staff', array('title' => 'System Settings'))] class exten
 
     public bool $public_results_visible = true;
 
-    public ?string $successMessage = null;
-
     protected array $keys = [
         'max_upload_size_mb',
         'public_results_visible',
@@ -48,37 +46,49 @@ new #[Layout('layouts::staff', array('title' => 'System Settings'))] class exten
             ['value' => $this->public_results_visible ? '1' : '0', 'description' => $descriptions['public_results_visible']]
         );
 
-        $this->successMessage = 'Settings saved.';
+        $this->dispatch('notice', title: 'Settings saved');
     }
 };
 ?>
 
 <div>
-    <x-ui.back-link :href="route('admin.settings')" label="Application settings" />
+    <x-ui.back-link :href="route('admin.settings')" label="Application settings" wire:navigate />
 
-    <h1 class="mt-3 font-display text-[30px] font-600 text-ink">System settings</h1>
-    <p class="mt-1 font-body text-[13px] text-mist">There is no limit on how many programs a student may apply to — the system flags multiple applications to staff rather than capping them, and that isn't configurable here.</p>
+    <h1 class="mt-3 font-display text-[26px] font-600 text-ink">System settings</h1>
 
-    @if ($successMessage)
-        <x-ui.alert type="success" class="mt-6">{{ $successMessage }}</x-ui.alert>
-    @endif
+    <form wire:submit="save" class="mt-5 max-w-2xl space-y-5">
+        <x-staff.review-card icon="upload" title="Uploads">
+            <div class="px-4 py-3.5">
+                <div class="max-w-xs">
+                    <x-ui.input
+                        name="max_upload_size_mb"
+                        label="Suggested max upload size (MB)"
+                        type="number"
+                        min="1"
+                        required
+                        wire:model="max_upload_size_mb"
+                        hint="Shown to staff when they set a document's size limit."
+                    />
+                </div>
+            </div>
+        </x-staff.review-card>
 
-    <form wire:submit="save" class="mt-8 max-w-lg space-y-5">
-        <x-ui.input
-            name="max_upload_size_mb"
-            label="Suggested max upload size (MB)"
-            type="number"
-            min="1"
-            required
-            wire:model="max_upload_size_mb"
-            hint="Shown to staff when they set a document requirement's size limit."
-        />
+        <x-staff.review-card icon="eye" title="Public pages">
+            <label for="public_results_visible" class="flex cursor-pointer items-center gap-3 px-4 py-3.5">
+                <span class="min-w-0 flex-1">
+                    <span class="block font-body text-[14px] font-500 text-ink">Published results page</span>
+                    <span class="block font-body text-[12px] text-mist">Turn off to hide every published awardee list from the public site.</span>
+                </span>
+                <span class="relative inline-flex shrink-0">
+                    <input id="public_results_visible" type="checkbox" wire:model="public_results_visible" class="peer sr-only">
+                    <span class="h-6 w-11 rounded-full bg-line transition-colors peer-checked:bg-navy-600 peer-focus-visible:ring-2 peer-focus-visible:ring-navy-600 peer-focus-visible:ring-offset-2"></span>
+                    <span class="absolute left-0.5 top-0.5 size-5 rounded-full bg-surface shadow-sm transition-transform peer-checked:translate-x-5"></span>
+                </span>
+            </label>
+        </x-staff.review-card>
 
-        <label class="flex items-center gap-2 font-body text-[14px] text-ink">
-            <input type="checkbox" wire:model="public_results_visible" class="rounded-control border-line focus-visible:ring-2 focus-visible:ring-forest-600">
-            Public Results page is reachable
-        </label>
-
-        <x-ui.button type="submit" wire:loading.attr="disabled" wire:target="save">Save settings</x-ui.button>
+        <div class="flex justify-end">
+            <x-ui.button type="submit" loading="save">Save settings</x-ui.button>
+        </div>
     </form>
 </div>

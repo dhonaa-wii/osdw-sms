@@ -29,7 +29,6 @@ class AuditLogTest extends TestCase
         $provider = Provider::create(['name' => 'DOST-SEI', 'funding_source' => FundingSource::NationalGovernment, 'is_active' => true]);
         $scholarshipProgram = ScholarshipProgram::create([
             'name' => 'DOST-SEI Fellowship', 'provider_id' => $provider->id,
-            'category' => ScholarshipCategory::Academic,
         ]);
         $term = AcademicTerm::create([
             'school_year' => '2026-2027', 'semester' => Semester::First,
@@ -39,7 +38,7 @@ class AuditLogTest extends TestCase
         $offering = ProgramOffering::create([
             'scholarship_program_id' => $scholarshipProgram->id, 'academic_term_id' => $term->id, 'campus_id' => $campus->id,
             'opens_at' => '2026-08-10 08:00', 'closes_at' => '2026-09-10 17:00', 'total_slots' => 5,
-            'college_scope' => 'all', 'allocation_mode' => 'open',
+            'college_scope' => 'all', 'allocation_mode' => 'open', 'category' => ScholarshipCategory::Academic,
             'amount' => 5000,
         ]);
         $college = College::create(['code' => 'CICS', 'name' => 'College of ICS']);
@@ -48,9 +47,9 @@ class AuditLogTest extends TestCase
             'sex' => 'male', 'email' => 'juan@example.com',
         ]);
         $application = $applicant->applications()->create([
-            'reference_no' => 'SCH-2026-'.Str::random(6), 'access_token' => str_repeat('a', 64),
+            'access_token' => str_repeat('a', 64),
             'program_offering_id' => $offering->id, 'college_id' => $college->id,
-            'year_level' => 2, 'status' => 'accepted', 'submitted_at' => now(),
+            'year_level' => 2, 'status' => 'awarded', 'submitted_at' => now(),
         ]);
 
         $this->actingAs($staff);
@@ -58,8 +57,6 @@ class AuditLogTest extends TestCase
         $award = Award::create([
             'application_id' => $application->id, 'applicant_id' => $applicant->id, 'program_offering_id' => $offering->id,
             'academic_term_id' => $term->id, 'amount' => 5000, 'awarded_by' => $staff->id, 'awarded_at' => now(),
-            'acceptance_status' => 'pending',
-            'status' => 'reserved',
         ]);
 
         $this->assertDatabaseHas('audit_logs', [
@@ -67,7 +64,7 @@ class AuditLogTest extends TestCase
             'auditable_type' => Award::class, 'auditable_id' => $award->id,
         ]);
 
-        $award->update(['status' => 'active']);
+        $award->update(['amount' => 6000]);
 
         $this->assertDatabaseHas('audit_logs', [
             'user_id' => $staff->id, 'action' => 'updated',
@@ -83,7 +80,6 @@ class AuditLogTest extends TestCase
         $provider = Provider::create(['name' => 'DOST-SEI', 'funding_source' => FundingSource::NationalGovernment, 'is_active' => true]);
         $scholarshipProgram = ScholarshipProgram::create([
             'name' => 'DOST-SEI Fellowship', 'provider_id' => $provider->id,
-            'category' => ScholarshipCategory::Academic,
         ]);
         $term = AcademicTerm::create([
             'school_year' => '2026-2027', 'semester' => Semester::First,
@@ -93,7 +89,7 @@ class AuditLogTest extends TestCase
         $offering = ProgramOffering::create([
             'scholarship_program_id' => $scholarshipProgram->id, 'academic_term_id' => $term->id, 'campus_id' => $campus->id,
             'opens_at' => '2026-08-10 08:00', 'closes_at' => '2026-09-10 17:00', 'total_slots' => 5,
-            'college_scope' => 'all', 'allocation_mode' => 'open',
+            'college_scope' => 'all', 'allocation_mode' => 'open', 'category' => ScholarshipCategory::Academic,
         ]);
         $college = College::create(['code' => 'CICS', 'name' => 'College of ICS']);
         $applicant = Applicant::create([
@@ -103,7 +99,7 @@ class AuditLogTest extends TestCase
 
         $this->actingAs($staff);
         $applicant->applications()->create([
-            'reference_no' => 'SCH-2026-'.Str::random(6), 'access_token' => str_repeat('a', 64),
+            'access_token' => str_repeat('a', 64),
             'program_offering_id' => $offering->id, 'college_id' => $college->id,
             'year_level' => 2, 'status' => 'submitted', 'submitted_at' => now(),
         ]);

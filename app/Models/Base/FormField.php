@@ -4,15 +4,9 @@ namespace App\Models\Base;
 
 use App\Enums\FieldType;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * Shared shape for the two form-field tables. A scholarship program holds the
- * template; creating an offering copies those rows into the offering's own table,
- * where they can be edited without touching the template or any other offering.
- *
- * Both sides must stay column-for-column identical — the copy in
- * OfferingService reads one and writes the other.
+ * Shared shape for the offering and standard form-field tables.
  */
 abstract class FormField extends Model
 {
@@ -43,15 +37,4 @@ abstract class FormField extends Model
             ? array_values(array_filter(array_map('trim', explode("\n", $this->options))))
             : [];
     }
-
-    /**
-     * The attributes carried from a program template row to an offering row, or
-     * the reverse. Excludes the owner key, which the caller sets.
-     */
-    public function copyableAttributes(): array
-    {
-        return $this->only(self::SHARED_FILLABLE);
-    }
-
-    abstract public function owner(): BelongsTo;
 }

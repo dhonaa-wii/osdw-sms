@@ -34,6 +34,8 @@ return [
         'public' => resource_path('views/public'),
         'staff' => resource_path('views/staff'),
         'admin' => resource_path('views/admin'),
+        'auth' => resource_path('views/auth'),
+        'student' => resource_path('views/student'),
     ],
 
     /*
@@ -138,7 +140,7 @@ return [
         'preview_mimes' => [                                  // Supported file types for temporary pre-signed file URLs...
             'png', 'gif', 'bmp', 'svg', 'wav', 'mp4',
             'mov', 'avi', 'wmv', 'mp3', 'm4a',
-            'jpg', 'jpeg', 'mpga', 'webp', 'wma',
+            'jpg', 'jpeg', 'mpga', 'webp', 'wma', 'pdf',
         ],
         'max_upload_time' => 5, // Max duration (in minutes) before an upload is invalidated...
         'cleanup' => true, // Should cleanup temporary uploads older than 24 hrs...

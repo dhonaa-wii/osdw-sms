@@ -26,8 +26,6 @@ new #[Layout('layouts::staff', array('title' => 'Academic Terms'))] class extend
 
     public string $end_date = '';
 
-    public ?string $successMessage = null;
-
     public function sort(string $column): void
     {
         if ($this->sortBy === $column) {
@@ -69,7 +67,7 @@ new #[Layout('layouts::staff', array('title' => 'Academic Terms'))] class extend
 
         AcademicTerm::updateOrCreate(['id' => $this->editingId], $validated);
 
-        $this->successMessage = $this->editingId ? 'Academic term updated.' : 'Academic term added.';
+        $this->dispatch('notice', title: $this->editingId ? 'Academic term updated' : 'Academic term added');
         $this->showModal = false;
         $this->resetPage();
     }
@@ -100,10 +98,6 @@ new #[Layout('layouts::staff', array('title' => 'Academic Terms'))] class extend
         </div>
         <x-ui.button wire:click="create">Add term</x-ui.button>
     </div>
-
-    @if ($successMessage)
-        <x-ui.alert type="success" class="mt-6">{{ $successMessage }}</x-ui.alert>
-    @endif
 
     <div class="mt-6">
         @if ($terms->isEmpty())
@@ -140,7 +134,7 @@ new #[Layout('layouts::staff', array('title' => 'Academic Terms'))] class extend
                             @endif
                         </td>
                         <td data-label="Actions" class="space-x-3 text-[14px]">
-                            <button type="button" wire:click="edit({{ $term->id }})" class="text-forest-700 hover:underline">Edit</button>
+                            <button type="button" wire:click="edit({{ $term->id }})" class="text-navy-700 hover:underline">Edit</button>
                             @unless ($term->is_current)
                                 <button type="button" wire:click="setCurrent({{ $term->id }})" class="text-slate hover:underline">Set as current</button>
                             @endunless

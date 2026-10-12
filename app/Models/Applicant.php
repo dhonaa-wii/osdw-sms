@@ -4,11 +4,13 @@ namespace App\Models;
 
 use App\Enums\Sex;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Applicant extends Model
 {
     protected $fillable = [
+        'user_id',
         'student_id',
         'last_name',
         'first_name',
@@ -29,6 +31,16 @@ class Applicant extends Model
         ];
     }
 
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function fullName(): string
+    {
+        return trim(implode(' ', array_filter([$this->first_name, $this->middle_name, $this->last_name, $this->suffix])));
+    }
+
     public function applications(): HasMany
     {
         return $this->hasMany(Application::class);
@@ -37,10 +49,5 @@ class Applicant extends Model
     public function awards(): HasMany
     {
         return $this->hasMany(Award::class);
-    }
-
-    public function scholarTerms(): HasMany
-    {
-        return $this->hasMany(ScholarTerm::class);
     }
 }

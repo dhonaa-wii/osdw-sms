@@ -3,18 +3,19 @@
 @php
     $isAdmin = auth()->user()?->role === \App\Enums\UserRole::Admin;
 
+    $logoUrl = \App\Models\BrandingImage::url(\App\Enums\BrandingImageKey::Logo);
+
     $link = fn (bool $active) => 'block rounded-control px-2 py-1.5 text-[14px] font-500 transition-colors short:py-1 short:text-[13px] shorter:py-0.5'
         .($active
-            ? ' border-l-2 border-forest-600 bg-forest-50 text-forest-700'
+            ? ' border-l-2 border-navy-600 bg-navy-50 text-navy-700'
             : ' text-slate hover:bg-paper hover:text-ink');
 
     $navItems = collect([
         ['label' => 'Dashboard', 'route' => 'dashboard', 'match' => 'dashboard'],
-        ['label' => 'Scholarship Programs', 'route' => 'admin.scholarship-programs', 'match' => 'admin.scholarship-programs', 'adminOnly' => true],
-        ['label' => 'Providers', 'route' => 'admin.providers', 'match' => 'admin.providers', 'adminOnly' => true],
-        ['label' => 'Applicants', 'route' => 'staff.applications.index', 'match' => 'staff.applications.*'],
-        ['label' => 'Award Processing', 'route' => 'staff.awards.index', 'match' => 'staff.awards.*'],
-        ['label' => 'Scholar Monitoring', 'route' => 'staff.scholars.index', 'match' => 'staff.scholars.*'],
+        ['label' => 'Scholarship Programs', 'route' => 'admin.scholarship-programs', 'match' => ['admin.scholarship-programs', 'admin.scholarship-programs.*', 'admin.offerings.*'], 'adminOnly' => true],
+        ['label' => 'Providers', 'route' => 'admin.providers', 'match' => ['admin.providers', 'admin.providers.*'], 'adminOnly' => true],
+        ['label' => 'Applications', 'route' => 'staff.applications.index', 'match' => ['staff.applications.*', 'staff.renewals.*']],
+        ['label' => 'Grantees', 'route' => 'staff.grantees.index', 'match' => 'staff.grantees.*'],
         ['label' => 'Announcements', 'route' => 'staff.announcements.index', 'match' => 'staff.announcements.*'],
         ['label' => 'Reports', 'route' => 'staff.reports.index', 'match' => 'staff.reports.*'],
     ])->reject(fn ($item) => ($item['adminOnly'] ?? false) && ! $isAdmin);
@@ -22,14 +23,17 @@
     $adminItems = [
         ['label' => 'Audit Log', 'route' => 'audit-log.index', 'match' => 'audit-log.*'],
         ['label' => 'Users', 'route' => 'admin.users', 'match' => 'admin.users'],
-        ['label' => 'Settings', 'route' => 'admin.settings', 'match' => ['admin.settings', 'admin.campus', 'admin.colleges', 'admin.programs', 'admin.academic-terms']],
+        ['label' => 'Settings', 'route' => 'admin.settings', 'match' => ['admin.settings', 'admin.settings.*', 'admin.database-backup', 'admin.email-log', 'admin.campus', 'admin.colleges', 'admin.programs', 'admin.academic-terms']],
     ];
 @endphp
 
-{{-- The sidebar is capped at the viewport height and never scrolls; spacing tightens on short screens instead. --}}
-<aside {{ $attributes->merge(['class' => 'sticky top-0 flex h-screen flex-col overflow-hidden border-r border-line bg-surface']) }}>
+{{-- The sidebar is capped at the viewport height and never scrolls; spacing tightens on short screens instead. Off-canvas below lg, static and sticky at lg+. --}}
+<aside {{ $attributes->merge(['class' => 'fixed inset-y-0 left-0 z-40 flex h-screen flex-col overflow-hidden border-r border-line bg-surface transition-transform duration-200 ease-in-out lg:sticky lg:top-0 lg:translate-x-0']) }}>
     <div class="px-6 py-6 short:py-4 shorter:py-3">
-        <span class="font-display text-[16px] font-600 text-forest-700">OSDW SMS</span>
+        @if ($logoUrl)
+            <img src="{{ $logoUrl }}" alt="" class="mx-auto mb-2 block size-14 rounded-full short:size-12 shorter:size-10">
+        @endif
+        <span class="block text-center font-display text-[16px] font-600 text-navy-700">OSDW SMS</span>
     </div>
 
     <nav class="min-h-0 flex-1 overflow-hidden px-4 pb-6 short:pb-3">

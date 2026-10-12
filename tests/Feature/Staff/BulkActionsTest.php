@@ -38,7 +38,7 @@ class BulkActionsTest extends TestCase
             'sex' => 'male', 'email' => Str::random(6).'@example.com',
         ]);
         $application = $applicant->applications()->create([
-            'reference_no' => 'SCH-2026-'.Str::random(6), 'access_token' => str_repeat('a', 64),
+            'access_token' => str_repeat('a', 64),
             'program_offering_id' => $offering->id, 'college_id' => $college->id,
             'year_level' => 2, 'status' => 'screening', 'submitted_at' => now(),
         ]);
@@ -55,7 +55,6 @@ class BulkActionsTest extends TestCase
         $provider = Provider::create(['name' => 'DOST-SEI '.Str::random(4), 'funding_source' => FundingSource::NationalGovernment]);
         $scholarshipProgram = ScholarshipProgram::create([
             'name' => 'DOST-SEI Fellowship', 'provider_id' => $provider->id,
-            'category' => ScholarshipCategory::Academic,
         ]);
         $term = AcademicTerm::create([
             'school_year' => '2026-2027', 'semester' => Semester::First,
@@ -66,7 +65,7 @@ class BulkActionsTest extends TestCase
         return ProgramOffering::create([
             'scholarship_program_id' => $scholarshipProgram->id, 'academic_term_id' => $term->id, 'campus_id' => $campus->id,
             'opens_at' => '2026-08-10 08:00', 'closes_at' => '2026-09-10 17:00', 'total_slots' => 20,
-            'college_scope' => 'all', 'allocation_mode' => 'open',
+            'college_scope' => 'all', 'allocation_mode' => 'open', 'category' => ScholarshipCategory::Academic,
         ]);
     }
 

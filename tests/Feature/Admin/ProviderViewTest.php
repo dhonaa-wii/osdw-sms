@@ -24,30 +24,28 @@ class ProviderViewTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function award(ScholarshipProgram $program, AcademicTerm $term, Campus $campus, College $college, string $status, float $amount): Award
+    private function award(ScholarshipProgram $program, AcademicTerm $term, Campus $campus, College $college, float $amount): Award
     {
         $offering = ProgramOffering::create([
             'scholarship_program_id' => $program->id, 'academic_term_id' => $term->id, 'campus_id' => $campus->id,
             'opens_at' => '2026-08-10 08:00', 'closes_at' => '2026-09-10 17:00', 'total_slots' => 5,
             'college_scope' => 'all', 'allocation_mode' => 'open',
-            'amount' => $amount,
+            'amount' => $amount, 'category' => ScholarshipCategory::Academic,
         ]);
         $applicant = Applicant::create([
             'student_id' => 'SID-'.Str::random(6), 'last_name' => 'Dela Cruz', 'first_name' => 'Juan',
             'sex' => 'male', 'email' => Str::random(6).'@example.com',
         ]);
         $application = $applicant->applications()->create([
-            'reference_no' => 'SCH-2026-'.Str::random(6), 'access_token' => str_repeat('a', 64),
+            'access_token' => str_repeat('a', 64),
             'program_offering_id' => $offering->id, 'college_id' => $college->id,
-            'year_level' => 2, 'status' => 'accepted', 'submitted_at' => now(),
+            'year_level' => 2, 'status' => 'awarded', 'submitted_at' => now(),
         ]);
         $staff = User::factory()->create();
 
         return Award::create([
             'application_id' => $application->id, 'applicant_id' => $applicant->id, 'program_offering_id' => $offering->id,
             'academic_term_id' => $term->id, 'amount' => $amount, 'awarded_by' => $staff->id, 'awarded_at' => now(),
-            'acceptance_status' => 'accepted', 'accepted_at' => now(),
-            'status' => $status,
         ]);
     }
 
@@ -59,13 +57,12 @@ class ProviderViewTest extends TestCase
         $this->actingAs($staff)->get("/admin/providers/{$provider->id}/view")->assertForbidden();
     }
 
-    public function test_provider_view_totals_only_active_and_completed_awards_across_terms(): void
+    public function test_provider_view_totals_every_recorded_award_across_terms(): void
     {
         $admin = User::factory()->create(['role' => UserRole::Admin]);
         $provider = Provider::create(['name' => 'DOST-SEI', 'funding_source' => FundingSource::NationalGovernment, 'is_active' => true]);
         $program = ScholarshipProgram::create([
             'name' => 'DOST-SEI Fellowship', 'provider_id' => $provider->id,
-            'category' => ScholarshipCategory::Academic,
         ]);
         $campus = Campus::create(['name' => 'Aparri']);
         $college = College::create(['code' => 'CICS', 'name' => 'College of ICS']);
@@ -79,10 +76,8 @@ class ProviderViewTest extends TestCase
             'start_date' => '2026-08-03', 'end_date' => '2026-12-18', 'is_current' => true,
         ]);
 
-        $this->award($program, $termOne, $campus, $college, 'active', 5000);
-        $this->award($program, $termTwo, $campus, $college, 'completed', 6000);
-        $this->award($program, $termTwo, $campus, $college, 'reserved', 6000);
-        $this->award($program, $termTwo, $campus, $college, 'terminated', 6000);
+        $this->award($program, $termOne, $campus, $college, 5000);
+        $this->award($program, $termTwo, $campus, $college, 6000);
 
         Livewire::actingAs($admin)
             ->test('admin::master-data.provider-view', ['provider' => $provider])
@@ -100,7 +95,6 @@ class ProviderViewTest extends TestCase
         $provider = Provider::create(['name' => 'CSUA Alumni Association', 'funding_source' => FundingSource::LocalNonGovernment, 'is_active' => true]);
         ScholarshipProgram::create([
             'name' => 'CSUA Alumni Grant', 'provider_id' => $provider->id,
-            'category' => ScholarshipCategory::Academic,
         ]);
 
         Livewire::actingAs($admin)

@@ -51,16 +51,16 @@
         @dragover.prevent="dragging = true"
         @dragleave.prevent="dragging = false"
         @drop.prevent="dragging = false; handleFiles($event.dataTransfer.files)"
-        :class="dragging ? 'border-forest-600 bg-forest-50' : 'border-line bg-surface hover:border-forest-600'"
+        :class="dragging ? 'border-navy-600 bg-navy-50' : 'border-line bg-surface hover:border-navy-600'"
         class="mt-1 flex cursor-pointer items-center gap-3 rounded-control border border-dashed px-4 py-3 transition-colors"
     >
         <input x-ref="input" type="file" @if ($accept) accept="{{ $accept }}" @endif {{ $attributes->merge(['class' => 'sr-only']) }} @change="handleFiles($event.target.files)">
 
         <img :src="previewUrl" x-show="previewUrl" x-cloak class="size-9 shrink-0 rounded-control object-cover">
-        <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-forest-50 text-forest-700" x-show="! fileName && ! previewUrl">
+        <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-navy-50 text-navy-700" x-show="! fileName && ! previewUrl">
             <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4M12 4 7 9M12 4l5 5" /><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /></svg>
         </span>
-        <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-forest-50 text-forest-700" x-show="fileName && ! previewUrl" x-cloak>
+        <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-navy-50 text-navy-700" x-show="fileName && ! previewUrl" x-cloak>
             <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3h8a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" /><path d="M9 8h6M9 12h6" /></svg>
         </span>
 
@@ -70,11 +70,11 @@
             <p class="font-mono text-[11px] text-mist" x-show="fileSize" x-text="formatSize(fileSize)" x-cloak></p>
 
             <div class="mt-1 h-1 rounded-full bg-paper" x-show="uploading" x-cloak>
-                <div class="h-1 rounded-full bg-forest-600 transition-all" :style="`width: ${progress}%`"></div>
+                <div class="h-1 rounded-full bg-navy-600 transition-all" :style="`width: ${progress}%`"></div>
             </div>
         </div>
 
-        <span class="shrink-0 font-body text-[13px] font-500 text-forest-700" x-show="fileName && ! uploading" x-cloak>Change</span>
+        <span class="shrink-0 font-body text-[13px] font-500 text-navy-700" x-show="fileName && ! uploading" x-cloak>Change</span>
     </div>
 
     <template x-if="! error">

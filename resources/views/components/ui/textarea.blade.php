@@ -2,7 +2,7 @@
 
 <div>
     @if ($label)
-        <label for="{{ $name }}" class="block font-body text-[13px] font-500 tracking-[0.02em] text-ink">
+        <label for="{{ $name }}" class="block font-body text-[13px] font-500 text-ink">
             {{ $label }}
             @if ($required)
                 <span class="text-crimson-600">*</span>
@@ -13,7 +13,7 @@
     <textarea
         id="{{ $name }}"
         rows="{{ $rows }}"
-        {{ $attributes->merge(['class' => 'mt-1 block w-full rounded-control border border-line bg-surface text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest-600 focus-visible:ring-offset-2 '.($compact ? 'px-2.5 py-1.5 text-[13px] sm:text-[14px]' : 'px-3 py-2 text-[16px]')]) }}
+        {{ $attributes->merge(['class' => 'mt-1 block w-full rounded-control border border-line bg-surface text-ink focus-visible:outline-none transition-colors hover:border-navy-100 focus:border-navy-600 focus-visible:ring-2 focus-visible:ring-navy-600/25 placeholder:text-mist '.($compact ? 'px-2.5 py-1 text-[13px]' : 'px-3 py-1.5 text-[16px] sm:text-[14px]')]) }}
     >{{ $slot }}</textarea>
 
     @if ($hint && ! $errors->has($name))

@@ -1,7 +1,7 @@
 @props(['title' => 'Nothing here yet', 'message' => null])
 
 <div class="flex flex-col items-center justify-center rounded-card border border-dashed border-line px-6 py-12 text-center">
-    <span class="flex size-11 items-center justify-center rounded-full bg-forest-50 text-forest-700">
+    <span class="flex size-11 items-center justify-center rounded-full bg-navy-50 text-navy-700">
         @isset($icon)
             {{ $icon }}
         @else

@@ -15,7 +15,7 @@ use App\Models\ProgramOffering;
 use App\Models\Provider;
 use App\Models\ScholarshipProgram;
 use App\Models\User;
-use App\Services\RetentionService;
+use App\Services\OfferingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
@@ -25,13 +25,12 @@ class ScholarMonitoringTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function activeAward(array $offeringOverrides = []): Award
+    private function award(array $offeringOverrides = [], array $scholarshipProgramOverrides = [], array $applicantOverrides = [], array $applicationOverrides = []): Award
     {
         $provider = Provider::create(['name' => 'DOST-SEI', 'funding_source' => FundingSource::NationalGovernment, 'is_active' => true]);
-        $scholarshipProgram = ScholarshipProgram::create([
+        $scholarshipProgram = ScholarshipProgram::create(array_merge([
             'name' => 'DOST-SEI Fellowship', 'provider_id' => $provider->id,
-            'category' => ScholarshipCategory::Academic,
-        ]);
+        ], $scholarshipProgramOverrides));
         $term = AcademicTerm::create([
             'school_year' => '2026-2027', 'semester' => Semester::First,
             'start_date' => '2026-08-03', 'end_date' => '2026-12-18', 'is_current' => true,
@@ -40,188 +39,224 @@ class ScholarMonitoringTest extends TestCase
         $offering = ProgramOffering::create(array_merge([
             'scholarship_program_id' => $scholarshipProgram->id, 'academic_term_id' => $term->id, 'campus_id' => $campus->id,
             'opens_at' => '2026-08-10 08:00', 'closes_at' => '2026-09-10 17:00', 'total_slots' => 5,
-            'college_scope' => 'all', 'allocation_mode' => 'open',
+            'college_scope' => 'all', 'allocation_mode' => 'open', 'category' => ScholarshipCategory::Academic,
             'amount' => 5000,
         ], $offeringOverrides));
 
-        $college = College::create(['code' => 'CICS', 'name' => 'College of ICS']);
-        $applicant = Applicant::create([
-            'student_id' => 'SID-'.Str::random(6), 'last_name' => 'Dela Cruz', 'first_name' => 'Juan',
+        $college = College::create(array_merge(['code' => 'CICS', 'name' => 'College of ICS'], $applicationOverrides['college'] ?? []));
+        $applicant = Applicant::create(array_merge([
+            'student_id' => 'SID-'.Str::random(6), 'last_name' => 'Dela Cruz', 'first_name' => 'Juan', 'middle_name' => 'Reyes',
             'sex' => 'male', 'email' => 'juan@example.com',
-        ]);
-        $application = $applicant->applications()->create([
-            'reference_no' => 'SCH-2026-'.Str::random(6), 'access_token' => str_repeat('a', 64),
+        ], $applicantOverrides));
+        $application = $applicant->applications()->create(array_merge([
+            'access_token' => str_repeat('a', 64),
             'program_offering_id' => $offering->id, 'college_id' => $college->id,
-            'year_level' => 2, 'status' => 'accepted', 'submitted_at' => now(),
-        ]);
+            'year_level' => 2, 'status' => 'awarded', 'submitted_at' => now(),
+        ], collect($applicationOverrides)->except('college')->all()));
         $staff = User::factory()->create();
 
         return Award::create([
             'application_id' => $application->id, 'applicant_id' => $applicant->id, 'program_offering_id' => $offering->id,
             'academic_term_id' => $term->id, 'amount' => 5000, 'awarded_by' => $staff->id, 'awarded_at' => now(),
-            'acceptance_status' => 'accepted', 'accepted_at' => now(),
-            'status' => 'active',
         ]);
     }
 
-    public function test_staff_can_view_the_scholars_picker(): void
+    public function test_scholars_roster_shows_every_recorded_award_by_default(): void
     {
         $staff = User::factory()->create(['role' => UserRole::OsdwStaff]);
-        $award = $this->activeAward();
+        $award = $this->award();
 
-        $this->actingAs($staff)
-            ->get(route('staff.scholars.index'))
-            ->assertOk()
-            ->assertSee($award->programOffering->scholarshipProgram->name);
+        Livewire::actingAs($staff)
+            ->test('staff::grantees.index')
+            ->assertSeeText($award->applicant->last_name)
+            ->assertSeeText($award->programOffering->scholarshipProgram->name)
+            ->assertSeeText('5,000.00');
     }
 
-    public function test_applicant_can_submit_grades_for_the_current_term(): void
-    {
-        $award = $this->activeAward();
-
-        $this->withSession(['tracking_applicant_id' => $award->applicant_id]);
-
-        Livewire::test('public::track-dashboard')
-            ->set("gradeGwa.{$award->id}", '90.00')
-            ->set("gradeUnits.{$award->id}", '18')
-            ->call('submitGrades', $award->id)
-            ->assertHasNoErrors();
-
-        $this->assertDatabaseHas('scholar_terms', [
-            'award_id' => $award->id, 'applicant_id' => $award->applicant_id, 'gwa' => 90.00, 'units_enrolled' => 18,
-        ]);
-    }
-
-    public function test_applicant_can_apply_for_renewal_before_submitting_grades(): void
-    {
-        $award = $this->activeAward();
-        $term = $award->programOffering->academicTerm;
-
-        $this->withSession(['tracking_applicant_id' => $award->applicant_id]);
-
-        Livewire::test('public::track-dashboard')
-            ->call('applyForRenewal', $award->id)
-            ->assertSeeText('Submit grades');
-
-        $this->assertDatabaseHas('scholar_terms', [
-            'award_id' => $award->id, 'academic_term_id' => $term->id, 'gwa' => null,
-        ]);
-    }
-
-    public function test_applying_for_renewal_twice_does_not_duplicate_the_term_record(): void
-    {
-        $award = $this->activeAward();
-
-        $this->withSession(['tracking_applicant_id' => $award->applicant_id]);
-
-        Livewire::test('public::track-dashboard')->call('applyForRenewal', $award->id);
-        Livewire::test('public::track-dashboard')->call('applyForRenewal', $award->id);
-
-        $this->assertSame(1, $award->scholarTerms()->count());
-    }
-
-    public function test_dashboard_shows_apply_for_renewal_before_any_term_record_exists(): void
-    {
-        $award = $this->activeAward();
-
-        $this->withSession(['tracking_applicant_id' => $award->applicant_id]);
-
-        Livewire::test('public::track-dashboard')->assertSeeText('Apply for renewal');
-    }
-
-    public function test_scholars_roster_shows_pending_renewal_without_running_retention_evaluation(): void
+    public function test_scholars_roster_can_be_filtered_by_college(): void
     {
         $staff = User::factory()->create(['role' => UserRole::OsdwStaff]);
-        $award = $this->activeAward();
-        $award->programOffering->retentionRules()->create([
-            'field' => 'gwa', 'operator' => 'gte', 'value' => '80', 'message' => 'GWA fell below the retention threshold.',
+        $cics = $this->award(applicantOverrides: ['last_name' => 'Santos'], applicationOverrides: ['college' => ['code' => 'CICS', 'name' => 'College of ICS']]);
+        $ceng = $this->award(applicantOverrides: ['last_name' => 'Bautista'], applicationOverrides: ['college' => ['code' => 'CENG', 'name' => 'College of Engineering']]);
+
+        Livewire::actingAs($staff)
+            ->test('staff::grantees.index')
+            ->set('college_id', $ceng->application->college_id)
+            ->assertSeeText('Bautista')
+            ->assertDontSeeText('Santos');
+    }
+
+    public function test_scholars_roster_can_be_filtered_by_scholarship_name(): void
+    {
+        $staff = User::factory()->create(['role' => UserRole::OsdwStaff]);
+        $dost = $this->award(scholarshipProgramOverrides: ['name' => 'DOST-SEI Fellowship'], applicantOverrides: ['last_name' => 'Santos']);
+        $ched = $this->award(scholarshipProgramOverrides: ['name' => 'CHED Merit Grant'], applicantOverrides: ['last_name' => 'Bautista'], applicationOverrides: ['college' => ['code' => 'CENG', 'name' => 'College of Engineering']]);
+
+        Livewire::actingAs($staff)
+            ->test('staff::grantees.index')
+            ->set('scholarship_program_id', $ched->programOffering->scholarship_program_id)
+            ->assertSeeText('Bautista')
+            ->assertDontSeeText('Santos');
+    }
+
+    public function test_applicant_sees_their_award_read_only_on_the_tracking_dashboard(): void
+    {
+        $award = $this->award();
+
+        $this->withSession(['tracking_application_id' => $award->application_id]);
+
+        Livewire::test('public::track-dashboard', ['offering' => $award->programOffering])
+            ->assertSeeText('5,000.00')
+            ->assertDontSeeText('Accept award')
+            ->assertDontSeeText('Apply for renewal');
+    }
+
+    public function test_applicant_sees_publish_instructions_only_once_results_are_published(): void
+    {
+        $award = $this->award();
+        $this->withSession(['tracking_application_id' => $award->application_id]);
+
+        Livewire::test('public::track-dashboard', ['offering' => $award->programOffering])
+            ->assertDontSee('Claim your certificate at Room 204.');
+
+        $award->programOffering->update([
+            'results_published' => true,
+            'publish_instructions' => 'Claim your certificate at Room 204.',
+            'results_published_at' => now(),
         ]);
-        $term = $award->programOffering->academicTerm;
-        $award->scholarTerms()->create([
-            'applicant_id' => $award->applicant_id, 'academic_term_id' => $term->id, 'status' => 'active',
+
+        Livewire::test('public::track-dashboard', ['offering' => $award->programOffering->fresh()])
+            ->assertSee('Claim your certificate at Room 204.');
+    }
+
+    public function test_offering_service_refuses_to_publish_while_slots_remain(): void
+    {
+        $award = $this->award(); // total_slots: 5, only 1 awarded
+
+        $this->expectException(\RuntimeException::class);
+
+        app(OfferingService::class)->publishResults($award->programOffering, 'Claim at Room 204.');
+    }
+
+    public function test_offering_service_publishes_once_every_slot_is_awarded(): void
+    {
+        $award = $this->award(['total_slots' => 1]);
+
+        app(OfferingService::class)->publishResults($award->programOffering, 'Claim at Room 204.');
+
+        $award->programOffering->refresh();
+        $this->assertTrue($award->programOffering->results_published);
+        $this->assertSame('Claim at Room 204.', $award->programOffering->publish_instructions);
+        $this->assertNotNull($award->programOffering->results_published_at);
+    }
+
+    public function test_offering_service_unpublish_keeps_instructions_for_reuse(): void
+    {
+        $award = $this->award(['total_slots' => 1]);
+        app(OfferingService::class)->publishResults($award->programOffering, 'Claim at Room 204.');
+
+        app(OfferingService::class)->unpublishResults($award->programOffering->fresh());
+
+        $offering = $award->programOffering->fresh();
+        $this->assertFalse($offering->results_published);
+        $this->assertSame('Claim at Room 204.', $offering->publish_instructions);
+    }
+
+    public function test_publish_button_is_disabled_while_slots_remain(): void
+    {
+        $staff = User::factory()->create(['role' => UserRole::OsdwStaff]);
+        $award = $this->award(); // total_slots: 5, only 1 awarded
+
+        Livewire::withQueryParams(['program' => $award->programOffering->scholarship_program_id, 'group' => $award->program_offering_id])->actingAs($staff)
+            ->test('staff::grantees.index')
+            ->assertSeeText('1/5 slots awarded')
+            ->assertSeeHtml('disabled');
+    }
+
+    public function test_staff_can_publish_results_once_slots_are_full(): void
+    {
+        $staff = User::factory()->create(['role' => UserRole::OsdwStaff]);
+        $award = $this->award(['total_slots' => 1]);
+
+        Livewire::withQueryParams(['program' => $award->programOffering->scholarship_program_id, 'group' => $award->program_offering_id])->actingAs($staff)
+            ->test('staff::grantees.index')
+            ->set('instructions', 'Claim your certificate at Room 204.')
+            ->call('publish')
+            ->assertDispatched('notice', title: 'Results published');
+
+        $this->assertDatabaseHas('program_offerings', [
+            'id' => $award->program_offering_id,
+            'results_published' => 1,
+            'publish_instructions' => 'Claim your certificate at Room 204.',
+        ]);
+    }
+
+    public function test_staff_can_unpublish_results(): void
+    {
+        $staff = User::factory()->create(['role' => UserRole::OsdwStaff]);
+        $award = $this->award(['total_slots' => 1]);
+        app(OfferingService::class)->publishResults($award->programOffering, 'Claim at Room 204.');
+
+        Livewire::withQueryParams(['program' => $award->programOffering->scholarship_program_id, 'group' => $award->program_offering_id])->actingAs($staff)
+            ->test('staff::grantees.index')
+            ->call('unpublish')
+            ->assertDispatched('notice', title: 'Results unpublished');
+
+        $this->assertDatabaseHas('program_offerings', [
+            'id' => $award->program_offering_id,
+            'results_published' => 0,
+        ]);
+    }
+
+    public function test_grantees_can_be_searched_by_name_or_student_id(): void
+    {
+        $staff = User::factory()->create(['role' => UserRole::OsdwStaff]);
+        $this->award(applicantOverrides: ['last_name' => 'Santos', 'student_id' => '21-00001']);
+        $this->award(applicantOverrides: ['last_name' => 'Bautista', 'student_id' => '21-00002'], applicationOverrides: ['college' => ['code' => 'CENG', 'name' => 'College of Engineering']]);
+
+        Livewire::actingAs($staff)
+            ->test('staff::grantees.index')
+            ->set('search', '21-00002')
+            ->assertSeeText('Bautista')
+            ->assertDontSeeText('Santos')
+            ->set('search', 'santos')
+            ->assertSeeText('Santos')
+            ->assertDontSeeText('Bautista');
+    }
+
+    public function test_a_renewed_grantee_is_listed_once_at_the_latest_offering_and_the_group_opens_on_it(): void
+    {
+        $staff = User::factory()->create(['role' => UserRole::OsdwStaff]);
+        $award = $this->award(offeringOverrides: ['name' => 'Batch 1']);
+        $first = $award->programOffering;
+        $term = AcademicTerm::create([
+            'school_year' => '2026-2027', 'semester' => Semester::Second,
+            'start_date' => '2027-01-11', 'end_date' => '2027-05-28', 'is_current' => false,
+        ]);
+        $renewalOffering = ProgramOffering::create([
+            'scholarship_program_id' => $first->scholarship_program_id, 'renews_offering_id' => $first->id,
+            'academic_term_id' => $term->id, 'campus_id' => $first->campus_id, 'name' => '2nd sem',
+            'opens_at' => '2027-01-11 08:00', 'closes_at' => '2027-02-11 17:00', 'total_slots' => 0,
+            'college_scope' => 'all', 'allocation_mode' => 'open', 'category' => $first->category, 'amount' => 5000,
+        ]);
+        $renewal = $award->applicant->applications()->create([
+            'access_token' => str_repeat('b', 64), 'program_offering_id' => $renewalOffering->id, 'kind' => 'renewal',
+            'renewed_from_award_id' => $award->id, 'college_id' => $award->application->college_id,
+            'year_level' => 3, 'status' => 'awarded', 'submitted_at' => now(),
+        ]);
+        Award::create([
+            'application_id' => $renewal->id, 'applicant_id' => $award->applicant_id, 'program_offering_id' => $renewalOffering->id,
+            'academic_term_id' => $term->id, 'amount' => 5000, 'awarded_by' => $staff->id, 'awarded_at' => now(),
         ]);
 
         Livewire::actingAs($staff)
-            ->test('staff::scholars.workspace', ['offering' => $award->programOffering])
-            ->assertSeeText('Applied for renewal')
-            ->assertDontSeeText('GWA fell below the retention threshold.');
-    }
-
-    public function test_retention_evaluation_flags_a_scholar_who_fails_a_configured_rule(): void
-    {
-        $award = $this->activeAward();
-        $award->programOffering->retentionRules()->create([
-            'field' => 'gwa', 'operator' => 'gte', 'value' => '80', 'message' => 'GWA fell below the retention threshold.',
-        ]);
-        $term = $award->programOffering->academicTerm;
-        $scholarTerm = $award->scholarTerms()->create([
-            'applicant_id' => $award->applicant_id, 'academic_term_id' => $term->id,
-            'gwa' => 65.00, 'units_enrolled' => 18, 'has_failing_grade' => false, 'status' => 'active',
-        ]);
-
-        $evaluation = app(RetentionService::class)->evaluate($scholarTerm);
-
-        $this->assertFalse($evaluation->first()['passed']);
-    }
-
-    public function test_offering_without_retention_rules_evaluates_to_empty(): void
-    {
-        $award = $this->activeAward();
-        $term = $award->programOffering->academicTerm;
-        $scholarTerm = $award->scholarTerms()->create([
-            'applicant_id' => $award->applicant_id, 'academic_term_id' => $term->id,
-            'gwa' => 78.00, 'units_enrolled' => 18, 'has_failing_grade' => false, 'status' => 'active',
-        ]);
-
-        $evaluation = app(RetentionService::class)->evaluate($scholarTerm);
-
-        $this->assertTrue($evaluation->isEmpty());
-    }
-
-    public function test_staff_can_set_scholar_to_probation_with_reason(): void
-    {
-        $staff = User::factory()->create(['role' => UserRole::OsdwStaff]);
-        $award = $this->activeAward();
-        $term = $award->programOffering->academicTerm;
-        $scholarTerm = $award->scholarTerms()->create([
-            'applicant_id' => $award->applicant_id, 'academic_term_id' => $term->id,
-            'gwa' => 78.00, 'units_enrolled' => 18, 'has_failing_grade' => false, 'status' => 'active',
-        ]);
-
-        Livewire::actingAs($staff)
-            ->test('staff::scholars.workspace', ['offering' => $award->programOffering])
-            ->call('startStatus', $scholarTerm->id)
-            ->call('setStatus', 'probation')
-            ->assertHasErrors(['statusReason']);
-
-        Livewire::actingAs($staff)
-            ->test('staff::scholars.workspace', ['offering' => $award->programOffering])
-            ->call('startStatus', $scholarTerm->id)
-            ->set('statusReason', 'GWA fell below the retention threshold this term.')
-            ->call('setStatus', 'probation')
-            ->assertHasNoErrors();
-
-        $this->assertDatabaseHas('scholar_terms', ['id' => $scholarTerm->id, 'status' => 'probation']);
-    }
-
-    public function test_terminating_a_scholar_also_terminates_the_award(): void
-    {
-        $staff = User::factory()->create(['role' => UserRole::OsdwStaff]);
-        $award = $this->activeAward();
-        $term = $award->programOffering->academicTerm;
-        $scholarTerm = $award->scholarTerms()->create([
-            'applicant_id' => $award->applicant_id, 'academic_term_id' => $term->id,
-            'gwa' => 78.00, 'units_enrolled' => 18, 'has_failing_grade' => true, 'status' => 'active',
-        ]);
-
-        Livewire::actingAs($staff)
-            ->test('staff::scholars.workspace', ['offering' => $award->programOffering])
-            ->call('startStatus', $scholarTerm->id)
-            ->set('statusReason', 'Two consecutive terms of failing grades.')
-            ->call('setStatus', 'terminated')
-            ->assertHasNoErrors();
-
-        $this->assertDatabaseHas('scholar_terms', ['id' => $scholarTerm->id, 'status' => 'terminated']);
-        $this->assertDatabaseHas('awards', ['id' => $award->id, 'status' => 'terminated']);
+            ->test('staff::grantees.index')
+            ->assertSeeHtml('DOST-SEI Fellowship &middot; 2nd sem')
+            ->assertDontSeeHtml('DOST-SEI Fellowship &middot; Batch 1')
+            ->set('scholarship_program_id', $first->scholarship_program_id)
+            ->set('group_id', $first->id)
+            ->assertSeeHtml('DOST-SEI Fellowship &middot; 2nd sem')
+            ->set('offering_id', $first->id)
+            ->assertSeeHtml('DOST-SEI Fellowship &middot; Batch 1');
     }
 }

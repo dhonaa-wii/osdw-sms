@@ -6,33 +6,40 @@ use App\Enums\EligibilityField;
 use App\Enums\EligibilityOperator;
 use App\Enums\FieldType;
 use App\Enums\ScholarshipCategory;
-use App\Models\ScholarshipProgram;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
- * The application-form builder, shared by the two screens that use it: the
- * scholarship program's template and an offering's working copy.
+ * The application-form builder used by an offering's Requirements page and
+ * the Standard requirements page.
  *
- * Everything here goes through the owner's `formFields()` and
- * `eligibilityRules()` relations, so the same code drives either level
- * without knowing which table it is writing to.
+ * Fields go through `formFieldsQuery()`; the required GWA through the
+ * offering's `eligibilityRules()`, so only an academic offering has one.
  */
 trait ConfiguresApplicationForm
 {
     public array $fields = [];
 
-    public ?string $fieldsSuccessMessage = null;
-
     public string $required_gwa = '';
 
     public bool $showPreview = false;
 
-    /** The scholarship program or offering whose configuration is being edited. */
-    abstract protected function configurationOwner(): Model;
+    /** The field whose settings are expanded in the builder, by index. */
+    public ?int $editingField = null;
 
-    /** The program this configuration belongs to — its own, or the offering's. */
-    abstract protected function owningProgram(): ScholarshipProgram;
+    /** The offering whose form is being edited — null for the standard form. */
+    abstract protected function configurationOwner(): ?Model;
+
+    protected function formFieldsQuery(): Builder|HasMany
+    {
+        return $this->configurationOwner()->formFields();
+    }
+
+    /** Runs after the form is saved. */
+    protected function fieldsSaved(): void {}
 
     protected function bootConfiguration(): void
     {
@@ -47,19 +54,12 @@ trait ConfiguresApplicationForm
 
     public function isAcademic(): bool
     {
-        return $this->owningProgram()->category === ScholarshipCategory::Academic;
-    }
-
-    public function requiresIncome(): bool
-    {
-        return $this->configurationOwner()->eligibilityRules()
-            ->where('field', EligibilityField::Income->value)
-            ->exists();
+        return $this->configurationOwner()?->category === ScholarshipCategory::Academic;
     }
 
     protected function loadFields(): void
     {
-        $this->fields = $this->configurationOwner()->formFields()->orderBy('sort_order')->get()->map(fn ($field) => [
+        $this->fields = $this->formFieldsQuery()->orderBy('sort_order')->get()->map(fn ($field) => [
             'id' => $field->id,
             'field_type' => $field->field_type->value,
             'label' => $field->label,
@@ -90,25 +90,49 @@ trait ConfiguresApplicationForm
     public function addField(): void
     {
         $this->fields[] = $this->blankField();
+        $this->editingField = count($this->fields) - 1;
+    }
+
+    public function toggleField(int $index): void
+    {
+        $this->editingField = $this->editingField === $index ? null : $index;
     }
 
     public function removeField(int $index): void
     {
         unset($this->fields[$index]);
         $this->fields = array_values($this->fields);
+
+        // Keep the open editor on the same field after the list shifts.
+        if ($this->editingField === $index) {
+            $this->editingField = null;
+        } elseif ($this->editingField !== null && $this->editingField > $index) {
+            $this->editingField--;
+        }
     }
 
     public function moveFieldUp(int $index): void
     {
         if ($index > 0) {
-            [$this->fields[$index - 1], $this->fields[$index]] = [$this->fields[$index], $this->fields[$index - 1]];
+            $this->swapFields($index, $index - 1);
         }
     }
 
     public function moveFieldDown(int $index): void
     {
         if ($index < count($this->fields) - 1) {
-            [$this->fields[$index + 1], $this->fields[$index]] = [$this->fields[$index], $this->fields[$index + 1]];
+            $this->swapFields($index, $index + 1);
+        }
+    }
+
+    protected function swapFields(int $a, int $b): void
+    {
+        [$this->fields[$a], $this->fields[$b]] = [$this->fields[$b], $this->fields[$a]];
+
+        if ($this->editingField === $a) {
+            $this->editingField = $b;
+        } elseif ($this->editingField === $b) {
+            $this->editingField = $a;
         }
     }
 
@@ -167,25 +191,29 @@ trait ConfiguresApplicationForm
             }
         }
 
-        $this->validate($rules);
+        try {
+            $this->validate($rules);
+        } catch (ValidationException $exception) {
+            $this->dispatch('notice', tone: 'error', title: 'Application form not saved', message: 'Fix the fields marked in red, then save again.');
+
+            throw $exception;
+        }
 
         $keptIds = array_values(array_filter(array_column($this->fields, 'id')));
 
         if (($blocked = $this->fieldsBlockingRemoval($keptIds)) !== []) {
-            $this->addError('fields', 'Remove the answers first, or keep these fields: '.implode(', ', $blocked).'.');
+            $this->dispatch('notice', tone: 'error', title: 'Application form not saved', message: 'Applicants already answered these fields, so keep them: '.implode(', ', $blocked).'.');
 
             return;
         }
 
-        $owner = $this->configurationOwner();
-
-        DB::transaction(function () use ($owner): void {
+        DB::transaction(function (): void {
             $savedIds = [];
 
             foreach ($this->fields as $index => $field) {
                 $type = FieldType::from($field['field_type']);
 
-                $record = $owner->formFields()->updateOrCreate(['id' => $field['id']], [
+                $record = $this->formFieldsQuery()->updateOrCreate(['id' => $field['id']], [
                     'field_type' => $field['field_type'],
                     'label' => $field['label'],
                     'description' => $field['description'] ?: null,
@@ -200,35 +228,37 @@ trait ConfiguresApplicationForm
                 $savedIds[] = $record->id;
             }
 
-            $owner->formFields()->whereNotIn('id', $savedIds)->delete();
+            $this->formFieldsQuery()->whereNotIn('id', $savedIds)->delete();
 
             if ($this->isAcademic()) {
-                $owner->eligibilityRules()->updateOrCreate(
+                $this->configurationOwner()->eligibilityRules()->updateOrCreate(
                     ['field' => EligibilityField::Gwa->value],
                     [
                         'operator' => EligibilityOperator::Gte->value,
                         'value' => $this->required_gwa,
-                        'message' => "Your GWA does not meet the required {$this->required_gwa} for this scholarship.",
+                        'message' => "You need a GWA of at least {$this->required_gwa} to apply for this scholarship.",
                     ]
                 );
             }
         });
 
+        $this->fieldsSaved();
         $this->loadFields();
-        $this->fieldsSuccessMessage = 'Requirements saved.';
+        $this->editingField = null;
+        $this->dispatch('notice', title: 'Application form saved', message: count($this->fields).' '.str('field')->plural(count($this->fields)));
     }
 
     /**
      * Labels of fields the save would delete but cannot, because applicants
-     * have already answered them. Only offerings can hit this — a program
-     * template is never answered directly.
+     * have already answered them. Only offerings can hit this — the standard
+     * form is never answered directly.
      *
      * @param  array<int, int>  $keptIds  ids still present in the editor
      * @return array<int, string>
      */
     protected function fieldsBlockingRemoval(array $keptIds): array
     {
-        return $this->configurationOwner()->formFields()
+        return $this->formFieldsQuery()
             ->whereNotIn('id', $keptIds)
             ->get()
             ->filter(fn ($field) => method_exists($field, 'hasResponses') && $field->hasResponses())

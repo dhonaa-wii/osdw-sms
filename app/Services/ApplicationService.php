@@ -2,8 +2,6 @@
 
 namespace App\Services;
 
-use App\Enums\EmailType;
-use App\Mail\ApplicationReferenceMail;
 use App\Models\Applicant;
 use App\Models\Application;
 use App\Models\ApplicationDocument;
@@ -12,34 +10,49 @@ use App\Models\ApplicationStatusLog;
 use App\Models\ProgramOffering;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 class ApplicationService
 {
-    public function __construct(protected EmailService $emailService, protected ScreeningService $screeningService) {}
+    public function __construct(
+        protected ScreeningService $screeningService,
+        protected StudentNotificationService $notifications,
+        protected EligibilityService $eligibility,
+        protected ScholarshipHoldingService $holdings,
+    ) {}
 
     /**
-     * @param  array<string, mixed>  $applicantData
+     * The signed-in student's applicant record supplies their identity; the
+     * form supplies this term's academic standing and the offering's fields.
+     *
      * @param  array<string, mixed>  $coreData
      * @param  array<int, mixed>  $fieldResponses  keyed by offering_form_field_id
      * @param  array<int, UploadedFile>  $uploadedFiles  keyed by offering_form_field_id
      */
     public function submit(
         ProgramOffering $offering,
-        array $applicantData,
+        Applicant $applicant,
         array $coreData,
         array $fieldResponses,
         array $uploadedFiles,
     ): Application {
-        $application = DB::transaction(function () use ($offering, $applicantData, $coreData, $fieldResponses, $uploadedFiles) {
-            $applicant = Applicant::updateOrCreate(
-                ['student_id' => $applicantData['student_id']],
-                $applicantData
-            );
+        if ($applicant->applications()->where('program_offering_id', $offering->id)->exists()) {
+            throw new \RuntimeException("You've already applied to this offering.");
+        }
 
+        if ($blocker = $this->holdings->applyBlocker($applicant, $offering)) {
+            throw new RuntimeException($blocker);
+        }
+
+        if ($unmetRule = $this->eligibility->unmetGwaRule($offering, $coreData['gwa'])) {
+            throw new \RuntimeException($unmetRule->message);
+        }
+
+        if ($unmetRule = $this->eligibility->unmetIncomeRule($offering, $coreData['monthly_income'])) {
+            throw new \RuntimeException($unmetRule->message);
+        }
+
+        $application = DB::transaction(function () use ($offering, $applicant, $coreData, $fieldResponses, $uploadedFiles) {
             $application = Application::create([
-                'reference_no' => $this->generateReferenceNumber(),
-                'access_token' => Str::random(64),
                 'applicant_id' => $applicant->id,
                 'program_offering_id' => $offering->id,
                 'college_id' => $coreData['college_id'],
@@ -92,24 +105,11 @@ class ApplicationService
             return $application;
         });
 
-        $this->emailService->send(
-            $application,
-            EmailType::Reference,
-            new ApplicationReferenceMail($application),
-            $application->applicant->email,
-        );
-
         $this->screeningService->screen($application);
 
+        // This submission may have filled the application cap and closed registration.
+        $this->notifications->syncRegistrationNotices();
+
         return $application->fresh();
-    }
-
-    protected function generateReferenceNumber(): string
-    {
-        do {
-            $candidate = 'SCH-'.now()->format('Y').'-'.strtoupper(Str::random(6));
-        } while (Application::where('reference_no', $candidate)->exists());
-
-        return $candidate;
     }
 }

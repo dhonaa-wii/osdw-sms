@@ -32,7 +32,6 @@ class MultiApplicationBadgeTest extends TestCase
         $provider = Provider::create(['name' => 'DOST-SEI '.Str::random(4), 'funding_source' => FundingSource::NationalGovernment]);
         $scholarshipProgram = ScholarshipProgram::create([
             'name' => 'DOST-SEI Fellowship', 'provider_id' => $provider->id,
-            'category' => ScholarshipCategory::Academic,
         ]);
         $term = AcademicTerm::create([
             'school_year' => '2026-2027', 'semester' => Semester::First,
@@ -42,7 +41,7 @@ class MultiApplicationBadgeTest extends TestCase
         $offering = ProgramOffering::create([
             'scholarship_program_id' => $scholarshipProgram->id, 'academic_term_id' => $term->id, 'campus_id' => $campus->id,
             'opens_at' => '2026-08-10 08:00', 'closes_at' => '2026-09-10 17:00', 'total_slots' => 20,
-            'college_scope' => 'all', 'allocation_mode' => 'open',
+            'college_scope' => 'all', 'allocation_mode' => 'open', 'category' => ScholarshipCategory::Academic,
         ]);
         $college = College::create(['code' => 'C'.Str::random(3), 'name' => 'College of ICS']);
         $program = Program::create([
@@ -56,46 +55,26 @@ class MultiApplicationBadgeTest extends TestCase
     private function applicationFor(Applicant $applicant, ProgramOffering $offering, College $college, Program $program, string $status): Application
     {
         return $applicant->applications()->create([
-            'reference_no' => 'SCH-2026-'.Str::random(6), 'access_token' => str_repeat('a', 64),
+            'access_token' => str_repeat('a', 64),
             'program_offering_id' => $offering->id, 'college_id' => $college->id,
             'year_level' => 2, 'status' => $status, 'submitted_at' => now(),
         ]);
     }
 
-    public function test_active_award_yields_red_badge(): void
+    public function test_awarded_application_yields_red_badge(): void
     {
         [$offering, $college, $program, $term] = $this->offeringAndCollegeAndProgram();
         $applicant = Applicant::create(['student_id' => 'SID-'.Str::random(6), 'last_name' => 'Cruz', 'first_name' => 'Ana', 'sex' => 'female', 'email' => Str::random(6).'@example.com']);
-        $application = $this->applicationFor($applicant, $offering, $college, $program, 'accepted');
+        $application = $this->applicationFor($applicant, $offering, $college, $program, 'awarded');
         $staff = User::factory()->create();
         Award::create([
             'application_id' => $application->id, 'applicant_id' => $applicant->id, 'program_offering_id' => $offering->id,
             'academic_term_id' => $term->id, 'amount' => 5000, 'awarded_by' => $staff->id, 'awarded_at' => now(),
-            'acceptance_status' => 'accepted', 'accepted_at' => now(),
-            'status' => 'active',
         ]);
 
         $badge = $application->fresh()->outcomeBadge();
 
         $this->assertSame('crimson-600', $badge['color']);
-    }
-
-    public function test_pending_award_acceptance_yields_amber_badge(): void
-    {
-        [$offering, $college, $program, $term] = $this->offeringAndCollegeAndProgram();
-        $applicant = Applicant::create(['student_id' => 'SID-'.Str::random(6), 'last_name' => 'Cruz', 'first_name' => 'Ana', 'sex' => 'female', 'email' => Str::random(6).'@example.com']);
-        $application = $this->applicationFor($applicant, $offering, $college, $program, 'approved');
-        $staff = User::factory()->create();
-        Award::create([
-            'application_id' => $application->id, 'applicant_id' => $applicant->id, 'program_offering_id' => $offering->id,
-            'academic_term_id' => $term->id, 'amount' => 5000, 'awarded_by' => $staff->id, 'awarded_at' => now(),
-            'acceptance_status' => 'pending',
-            'status' => 'reserved',
-        ]);
-
-        $badge = $application->fresh()->outcomeBadge();
-
-        $this->assertSame('amber-600', $badge['color']);
     }
 
     public function test_screening_without_an_award_yields_amber_badge(): void
@@ -107,11 +86,11 @@ class MultiApplicationBadgeTest extends TestCase
         $this->assertSame('amber-600', $application->outcomeBadge()['color']);
     }
 
-    public function test_withdrawn_application_yields_gray_badge(): void
+    public function test_denied_application_yields_gray_badge(): void
     {
         [$offering, $college, $program] = $this->offeringAndCollegeAndProgram();
         $applicant = Applicant::create(['student_id' => 'SID-'.Str::random(6), 'last_name' => 'Cruz', 'first_name' => 'Ana', 'sex' => 'female', 'email' => Str::random(6).'@example.com']);
-        $application = $this->applicationFor($applicant, $offering, $college, $program, 'withdrawn');
+        $application = $this->applicationFor($applicant, $offering, $college, $program, 'denied');
 
         $this->assertSame('mist', $application->outcomeBadge()['color']);
     }
@@ -122,7 +101,7 @@ class MultiApplicationBadgeTest extends TestCase
         [$otherOffering] = $this->offeringAndCollegeAndProgram();
         $applicant = Applicant::create(['student_id' => 'SID-'.Str::random(6), 'last_name' => 'Cruz', 'first_name' => 'Ana', 'sex' => 'female', 'email' => Str::random(6).'@example.com']);
         $application = $this->applicationFor($applicant, $offering, $college, $program, 'screening');
-        $this->applicationFor($applicant, $otherOffering, $college, $program, 'withdrawn');
+        $this->applicationFor($applicant, $otherOffering, $college, $program, 'denied');
 
         $staff = User::factory()->create(['role' => UserRole::OsdwStaff]);
 
@@ -137,7 +116,7 @@ class MultiApplicationBadgeTest extends TestCase
         [$otherOffering] = $this->offeringAndCollegeAndProgram();
         $applicant = Applicant::create(['student_id' => 'SID-'.Str::random(6), 'last_name' => 'Cruz', 'first_name' => 'Ana', 'sex' => 'female', 'email' => Str::random(6).'@example.com']);
         $this->applicationFor($applicant, $offering, $college, $program, 'screening');
-        $this->applicationFor($applicant, $otherOffering, $college, $program, 'withdrawn');
+        $this->applicationFor($applicant, $otherOffering, $college, $program, 'denied');
 
         $staff = User::factory()->create(['role' => UserRole::OsdwStaff]);
 
