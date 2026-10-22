@@ -13,6 +13,7 @@ use App\Models\OfferingAdditionalRequirement;
 use App\Models\ProgramOffering;
 use App\Models\ScholarshipProgram;
 use App\Models\StandardRequirement;
+use App\Services\HelpCenterPdfService;
 use App\Services\ReportService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -39,6 +40,19 @@ Route::get('/branding/{key}', function (BrandingImageKey $key) {
 // Browsing is public and shows only offerings open for registration.
 Route::livewire('/programs', 'public::browse')->name('programs.index');
 Route::livewire('/programs/{offering}', 'public::show')->name('programs.show');
+
+// The user guide, open to everyone; the top bar of every layout links here.
+Route::livewire('/help', 'public::help')->name('help');
+Route::get('/help/download', function (HelpCenterPdfService $pdf) {
+    try {
+        $path = $pdf->path();
+    } catch (RuntimeException $e) {
+        report($e);
+        abort(503, 'The PDF could not be made right now.');
+    }
+
+    return response()->download($path, 'OSDW Help Center.pdf', ['Content-Type' => 'application/pdf']);
+})->middleware('throttle:10,1')->name('help.download');
 
 Route::livewire('/results', 'public::results')->name('results.index');
 Route::livewire('/programs/{offering}/results', 'public::offering-results')->name('programs.results');

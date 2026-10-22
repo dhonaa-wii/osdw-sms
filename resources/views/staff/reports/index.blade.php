@@ -89,26 +89,37 @@ new #[Layout('layouts::staff', array('title' => 'Reports'))] class extends Compo
         <h1 class="font-display text-[26px] font-600 text-ink">Reports</h1>
         @if ($sucLevelling->isNotEmpty())
             <div class="flex flex-wrap gap-2">
-                {{-- Loads the print view into a hidden frame and prints only that frame, so the page itself never prints. --}}
+                {{--
+                    Loads the print view into an off-screen frame and prints only that frame, so the page itself never prints.
+                    The frame keeps a real A4 size (a 0×0 frame prints blank in Chrome), a timestamp forces a fresh load
+                    when the same report is printed twice, and printing waits for the web fonts.
+                --}}
                 <div
                     x-data="{
                         printing: false,
-                        print(url) {
+                        printReport(url) {
+                            const frame = this.$refs.frame;
+                            const src = new URL(url, window.location.href);
+                            src.searchParams.set('t', Date.now());
                             this.printing = true;
-                            this.$refs.frame.onload = () => {
-                                this.printing = false;
-                                this.$refs.frame.contentWindow.focus();
-                                this.$refs.frame.contentWindow.print();
+                            frame.onload = () => {
+                                const win = frame.contentWindow;
+                                const ready = win.document.fonts ? win.document.fonts.ready : Promise.resolve();
+                                ready.then(() => {
+                                    this.printing = false;
+                                    win.focus();
+                                    win.print();
+                                });
                             };
-                            this.$refs.frame.src = url;
+                            frame.src = src.toString();
                         },
                     }"
                 >
-                    <x-ui.button type="button" variant="secondary" x-on:click="print(@js($printUrl))" x-bind:disabled="printing">
+                    <x-ui.button type="button" variant="secondary" x-on:click="printReport(@js($printUrl))" x-bind:disabled="printing">
                         <x-ui.icon name="printer" class="size-4" />
                         <span x-text="printing ? 'Preparing…' : 'Print report'">Print report</span>
                     </x-ui.button>
-                    <iframe x-ref="frame" title="SUC-Levelling report print view" class="pointer-events-none fixed bottom-0 right-0 size-0 border-0" aria-hidden="true" tabindex="-1" wire:ignore></iframe>
+                    <iframe x-ref="frame" title="SUC-Levelling report print view" class="pointer-events-none fixed left-[-10000px] top-0 h-[210mm] w-[297mm] border-0" aria-hidden="true" tabindex="-1" wire:ignore></iframe>
                 </div>
                 <x-ui.button-link :href="$exportUrl">
                     <x-ui.icon name="download" class="size-4" />

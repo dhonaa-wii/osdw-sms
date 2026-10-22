@@ -30,6 +30,7 @@
             </div>
             <nav class="flex flex-wrap items-center gap-4 font-body text-[14px] font-500 sm:gap-6">
                 <a href="{{ route('programs.index') }}" class="text-ink hover:text-navy-700">Scholarship Programs</a>
+                <x-ui.help-button variant="text" />
                 @auth
                     @if (auth()->user()->isStudent() && auth()->user()->applicant)
                         <livewire:student::notification-bell />
@@ -73,6 +74,7 @@
                     <ul class="mt-2 space-y-1 font-body text-[14px]">
                         <li><a href="{{ route('programs.index') }}" class="text-ink hover:text-navy-700">Browse scholarship programs</a></li>
                         <li><a href="{{ route('results.index') }}" class="text-ink hover:text-navy-700">Published results</a></li>
+                        <li><a href="{{ route('help') }}" class="text-ink hover:text-navy-700">Help Center</a></li>
                     </ul>
                 </div>
                 <div>

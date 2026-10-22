@@ -155,4 +155,16 @@ class ReportsTest extends TestCase
 
         Excel::assertDownloaded('suc-levelling-all.xlsx', fn ($export) => $export->collection()->count() === 1);
     }
+
+    public function test_suc_levelling_print_view_lists_the_grantees(): void
+    {
+        $staff = User::factory()->create(['role' => UserRole::OsdwStaff]);
+        $award = $this->award($this->term(), Campus::create(['name' => 'Aparri']));
+
+        $this->actingAs($staff)
+            ->get(route('staff.reports.suc-levelling.print', ['offering' => $award->program_offering_id]))
+            ->assertOk()
+            ->assertSee('SUC-Levelling report')
+            ->assertSee('Dela Cruz');
+    }
 }

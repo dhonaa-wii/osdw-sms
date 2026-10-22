@@ -1,5 +1,7 @@
 <?php
 
+use App\Enums\UserRole;
+use App\Models\User;
 use App\Services\DeletionService;
 use App\Services\StudentNotificationService;
 use Illuminate\Foundation\Inspiring;
@@ -18,6 +20,34 @@ Artisan::command('osdw:registration-notices', function (StudentNotificationServi
 // students' bell also runs this on page load, so notices still go out on a
 // machine with no scheduler running.
 Schedule::command('osdw:registration-notices')->everyMinute()->withoutOverlapping();
+
+Artisan::command('osdw:create-admin', function () {
+    $name = $this->ask('Name', 'System Administrator');
+    $email = $this->ask('Email');
+
+    if (! filter_var($email, FILTER_VALIDATE_EMAIL) || User::where('email', $email)->exists()) {
+        $this->error('Enter a valid email that no other account uses.');
+
+        return 1;
+    }
+
+    $password = $this->secret('Password (at least 8 characters)');
+
+    if (strlen((string) $password) < 8) {
+        $this->error('The password must be at least 8 characters.');
+
+        return 1;
+    }
+
+    User::create([
+        'name' => $name,
+        'email' => $email,
+        'password' => $password,
+        'role' => UserRole::Admin,
+    ]);
+
+    $this->info("Administrator {$email} created. Sign in at ".url('/login'));
+})->purpose('Create a System Administrator account');
 
 Artisan::command('osdw:purge-deleted', function (DeletionService $deletions) {
     $this->info('Purged '.$deletions->purgeExpired().' deleted programs and offerings.');

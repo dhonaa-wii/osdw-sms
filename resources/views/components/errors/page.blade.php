@@ -18,6 +18,11 @@
     <header class="border-b border-line bg-surface">
         <div class="mx-auto flex max-w-[720px] items-center px-4 py-4">
             <a href="{{ route('home') }}" class="font-display text-[16px] font-600 text-navy-700">OSDW Scholarship System</a>
+            {{-- A plain link: error pages may render without a session or database, so no role lookup here. --}}
+            <a href="{{ route('help') }}" class="ml-auto inline-flex items-center gap-1.5 rounded-control px-2 py-1 font-body text-[14px] font-500 text-slate hover:text-navy-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy-600">
+                <x-ui.icon name="help" class="size-[18px]" />
+                Help Center
+            </a>
         </div>
     </header>
 

@@ -21,6 +21,10 @@ return Application::configure(basePath: dirname(__DIR__))
             'staff.setup' => EnsureStaffAccountSetup::class,
         ]);
 
+        // Hosts terminate HTTPS at a proxy; trust it so URLs and secure
+        // cookies use https.
+        $middleware->trustProxies(at: '*');
+
         // A signed-in user who opens /login or /register goes to their own home.
         $middleware->redirectUsersTo(fn (Request $request) => $request->user()->homeRoute());
     })

@@ -46,6 +46,7 @@
                 <span class="font-display text-[15px] font-600 text-navy-700 lg:hidden">OSDW SMS</span>
 
                 <div class="ml-auto flex items-center gap-1">
+                    <x-ui.help-button />
                     <livewire:staff::notification-bell />
 
                     <div class="relative" x-data="{ open: false }" x-on:keydown.escape.window="open = false">

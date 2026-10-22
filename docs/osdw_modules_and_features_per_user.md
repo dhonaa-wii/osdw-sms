@@ -297,6 +297,7 @@ Powers beyond day-to-day Staff review, folded in from the retired OSDW Head role
 | Role-based access control | Enforced at route and view level |
 | Data privacy compliance | Consent at collection, tiered visibility, search-engine exclusion on public lists |
 | Responsive design | Students will apply and check results on phones |
+| Help Center | A user guide at `/help`, open to everyone and linked from the top bar of every page (landing header and footer, student/public header, staff/admin top bar, error pages), opening on the reader's chapter. Chapters: Getting started, For students, For OSDW staff, For administrators, Questions and troubleshooting. Coded mock screenshots with numbered callouts, a contents sidebar that tracks the section in view, full-text search, and "Download PDF", which downloads the guide as a PDF file (made on the server with headless Chrome) with a cover, a contents page, each chapter on a new A4 page and page numbers |
 | File storage | Organized per applicant and requirement, with size and format enforcement |
 
 ---

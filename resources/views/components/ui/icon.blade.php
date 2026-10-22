@@ -150,6 +150,9 @@
         @case('graduation')
             <path d="m12 4 10 5-10 5L2 9l10-5Z" /><path d="M6 11v5c0 1.5 2.7 3 6 3s6-1.5 6-3v-5" />
             @break
+        @case('help')
+            <circle cx="12" cy="12" r="9" /><path d="M9.6 9.4a2.5 2.5 0 1 1 3.4 2.4c-.6.3-1 .8-1 1.5v.6" /><path d="M12 16.8h.01" />
+            @break
         @case('bell')
             <path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16Z" /><path d="M10 20.5a2.2 2.2 0 0 0 4 0" />
             @break

@@ -57,6 +57,8 @@
                     @endforeach
                 </nav>
 
+                <x-ui.help-button navigate />
+
                 @if ($student)
                     <livewire:student::notification-bell />
 

@@ -42,4 +42,10 @@ return [
         'redirect' => env('GOOGLE_REDIRECT_URI', '/auth/google/callback'),
     ],
 
+    // Headless Chrome (or Edge) that draws the Help Center PDF. Left unset,
+    // the usual Windows and Linux install locations are tried.
+    'chrome' => [
+        'path' => env('CHROME_PATH'),
+    ],
+
 ];
